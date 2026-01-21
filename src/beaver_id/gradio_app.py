@@ -33,14 +33,20 @@ def env_default(name: str, default: str | None = None) -> str | None:
 
 
 @lru_cache(maxsize=4)
-def build_clients_cached(aws_region: str | None, aws_profile: str | None):
+def build_clients_cached(
+    aws_region: str | None,
+    aws_profile: str | None,
+    s3_region: str | None,
+):
     session_kwargs: dict[str, Any] = {}
     if aws_region:
         session_kwargs["region_name"] = aws_region
     if aws_profile:
         session_kwargs["profile_name"] = aws_profile
     session = boto3.Session(**session_kwargs)
-    return session.client("bedrock-runtime"), session.client("s3")
+    bedrock_client = session.client("bedrock-runtime")
+    s3_client = session.client("s3", region_name=s3_region) if s3_region else session.client("s3")
+    return bedrock_client, s3_client
 
 
 def draw_bbox_on_image(image: Image.Image, bbox: list[float] | None) -> Image.Image:
@@ -61,12 +67,13 @@ def run_uploaded_image(
     model_id: str,
     aws_region: str | None,
     aws_profile: str | None,
+    s3_region: str | None,
     max_dim: int,
 ):
     if image is None:
         return {"error": "No image provided."}, None
 
-    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile)
+    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile, s3_region)
     with tempfile.NamedTemporaryFile(suffix=".jpg") as handle:
         image.convert("RGB").save(handle.name, format="JPEG")
         data = detect_beaver(
@@ -91,12 +98,13 @@ def run_s3_path(
     model_id: str,
     aws_region: str | None,
     aws_profile: str | None,
+    s3_region: str | None,
     max_dim: int,
 ):
     if not s3_path:
         return {"error": "No S3 path provided."}, None
 
-    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile)
+    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile, s3_region)
     data = detect_beaver(s3_path, bedrock_client, s3_client, model_id, task, max_dim)
 
     preview = None
@@ -118,6 +126,7 @@ def run_batch_upload(
     model_id: str,
     aws_region: str | None,
     aws_profile: str | None,
+    s3_region: str | None,
     max_dim: int,
     max_workers: int,
     batch_size: int,
@@ -136,7 +145,7 @@ def run_batch_upload(
     if not image_paths:
         return [], None, "No supported image files provided."
 
-    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile)
+    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile, s3_region)
 
     def _run(path: str) -> dict:
         data = detect_beaver(path, bedrock_client, s3_client, model_id, task, max_dim)
@@ -178,6 +187,7 @@ def run_s3_batch(
     model_id: str,
     aws_region: str | None,
     aws_profile: str | None,
+    s3_region: str | None,
     max_dim: int,
     max_workers: int,
     limit: int,
@@ -191,7 +201,7 @@ def run_s3_batch(
     batch_size = max(1, int(batch_size))
     batch_pause_sec = max(0.0, float(batch_pause_sec))
 
-    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile)
+    bedrock_client, s3_client = build_clients_cached(aws_region, aws_profile, s3_region)
     limit_value = None if limit <= 0 else limit
     image_paths = list(iter_input_images(s3_prefix, s3_client, limit_value))
     if not image_paths:
@@ -247,6 +257,7 @@ def build_app() -> gr.Blocks:
     default_max_dim = int(env_default("BEAVER_MAX_DIM", "2048"))
     default_batch_size = int(env_default("BEAVER_BATCH_SIZE", "20"))
     default_batch_pause = float(env_default("BEAVER_BATCH_PAUSE_SEC", "0"))
+    default_s3_region = env_default("S3_REGION")
 
     with gr.Blocks(title="Beaver Detector") as demo:
         gr.Markdown("# Beaver Detector")
@@ -258,6 +269,7 @@ def build_app() -> gr.Blocks:
         with gr.Row():
             aws_region = gr.Textbox(value=default_region or "", label="AWS Region")
             aws_profile = gr.Textbox(value=default_profile or "", label="AWS Profile")
+            s3_region = gr.Textbox(value=default_s3_region or "", label="S3 Region")
             max_dim = gr.Number(value=default_max_dim, label="Max Image Dimension")
 
         with gr.Tab("Upload Image"):
@@ -267,7 +279,7 @@ def build_app() -> gr.Blocks:
             bbox_preview = gr.Image(type="pil", label="BBox Preview")
             run_upload.click(
                 run_uploaded_image,
-                inputs=[upload, task, model_id, aws_region, aws_profile, max_dim],
+                inputs=[upload, task, model_id, aws_region, aws_profile, s3_region, max_dim],
                 outputs=[result_json, bbox_preview],
             )
 
@@ -281,7 +293,7 @@ def build_app() -> gr.Blocks:
             s3_bbox_preview = gr.Image(type="pil", label="BBox Preview")
             run_s3.click(
                 run_s3_path,
-                inputs=[s3_path, task, model_id, aws_region, aws_profile, max_dim],
+                inputs=[s3_path, task, model_id, aws_region, aws_profile, s3_region, max_dim],
                 outputs=[s3_result_json, s3_bbox_preview],
             )
 
@@ -306,6 +318,7 @@ def build_app() -> gr.Blocks:
                     model_id,
                     aws_region,
                     aws_profile,
+                    s3_region,
                     max_dim,
                     s3_workers,
                     s3_limit,
@@ -332,6 +345,7 @@ def build_app() -> gr.Blocks:
                     model_id,
                     aws_region,
                     aws_profile,
+                    s3_region,
                     max_dim,
                     batch_workers,
                     batch_size,

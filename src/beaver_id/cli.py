@@ -101,14 +101,20 @@ def iter_input_images(input_value: str, s3_client, limit: int | None) -> Iterabl
         yield str(file_path)
 
 
-def build_clients(aws_region: str | None, aws_profile: str | None):
+def build_clients(
+    aws_region: str | None,
+    aws_profile: str | None,
+    s3_region: str | None,
+):
     session_kwargs = {}
     if aws_region:
         session_kwargs["region_name"] = aws_region
     if aws_profile:
         session_kwargs["profile_name"] = aws_profile
     session = boto3.Session(**session_kwargs)
-    return session.client("bedrock-runtime"), session.client("s3")
+    bedrock_client = session.client("bedrock-runtime")
+    s3_client = session.client("s3", region_name=s3_region) if s3_region else session.client("s3")
+    return bedrock_client, s3_client
 
 
 def load_image_bytes(image_path: str, s3_client) -> bytes:
@@ -336,6 +342,11 @@ def parse_args() -> argparse.Namespace:
         default=env_default("AWS_PROFILE"),
         help="AWS profile for credentials (e.g. default).",
     )
+    parser.add_argument(
+        "--s3-region",
+        default=env_default("S3_REGION"),
+        help="AWS region for S3 reads (e.g. us-west-2).",
+    )
     return parser.parse_args()
 
 
@@ -343,7 +354,11 @@ def main() -> None:
     args = parse_args()
     limit = None if args.limit == 0 else args.limit
 
-    bedrock_client, s3_client = build_clients(args.aws_region, args.aws_profile)
+    bedrock_client, s3_client = build_clients(
+        args.aws_region,
+        args.aws_profile,
+        args.s3_region,
+    )
     image_paths = list(iter_input_images(args.input, s3_client, limit))
     if not image_paths:
         raise SystemExit("No images found for input.")
