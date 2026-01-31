@@ -8,6 +8,7 @@ export default function Home() {
   const [csvPath, setCsvPath] = useState("");
   const [csvText, setCsvText] = useState("");
   const [csvName, setCsvName] = useState("");
+  const [modelId, setModelId] = useState("");
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -84,6 +85,20 @@ export default function Home() {
                 className="mt-2 w-full rounded-2xl border border-[#d9cbb2] bg-white px-4 py-3 text-sm text-[#2b2417] shadow-inner outline-none focus:border-[#b3863e] focus:ring-2 focus:ring-[#e6c17a]"
               />
             </div>
+            <div className="mt-4">
+              <label className="block text-sm font-semibold text-[#443321]">
+                Bedrock Model ID / ARN (optional)
+              </label>
+              <input
+                value={modelId}
+                onChange={(event) => setModelId(event.target.value)}
+                placeholder="arn:aws:bedrock:us-east-2:...:inference-profile/..."
+                className="mt-2 w-full rounded-2xl border border-[#d9cbb2] bg-white px-4 py-3 text-sm text-[#2b2417] shadow-inner outline-none focus:border-[#b3863e] focus:ring-2 focus:ring-[#e6c17a]"
+              />
+              <p className="mt-2 text-xs text-[#6a5a3f]">
+                Use this if Amplify env vars are not available at runtime.
+              </p>
+            </div>
             <div className="mt-6">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#a1824c]">
                 Try asking
@@ -143,7 +158,7 @@ export default function Home() {
                 }
                 await sendMessage(
                   { text: input },
-                  { body: { csvPath, csvText } },
+                  { body: { csvPath, csvText, modelId } },
                 );
                 setInput("");
               }}

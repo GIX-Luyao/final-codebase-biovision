@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type CsvRow = Record<string, string>;
 
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
     }
 
     const modelId =
+      payload?.modelId ||
       process.env.BEAVER_CHAT_MODEL_ID ||
       process.env.BEAVER_BEDROCK_MODEL_ID ||
       process.env.BEDROCK_MODEL_ID;
