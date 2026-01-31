@@ -70,6 +70,28 @@ Batch tuning (optional):
 - `BEAVER_BATCH_PAUSE_SEC` (default 0)
 - `BEAVER_BEDROCK_MAX_RETRIES` (default 3)
 
+## Web Chat (Vercel AI SDK + Bedrock)
+The `web/` app provides a chat UI that answers questions from a single CSV.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Set env vars (in your shell or a `.env.local` inside `web/`):
+```
+BEAVER_CHAT_CSV=/absolute/path/to/beaver_results_batch.csv
+BEAVER_CHAT_MODEL_ID=arn:aws:bedrock:us-east-2:727117753557:inference-profile/us.anthropic.claude-opus-4-5-20251101-v1:0
+AWS_REGION=us-east-2
+AWS_PROFILE=default
+```
+
+Then open the local Next.js URL and ask questions like:
+- "How many beavers are in the dataset?"
+- "List animals found in this CSV."
+- "Total animals detected?"
+
 ## Tests
 ```bash
 python -m unittest

@@ -2,6 +2,8 @@ import io
 import os
 import pathlib
 import tempfile
+import csv
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from typing import Any, Iterable
@@ -403,6 +405,60 @@ def build_app() -> gr.Blocks:
     default_overlay_codes = env_default("BEAVER_OVERLAY_CODES", "")
     default_overlay_model_id = env_default("BEAVER_OVERLAY_MODEL_ID", default_model_id)
     default_run_exif = env_default("BEAVER_RUN_EXIF", "false").lower() in {"1", "true", "yes"}
+    default_chat_csv = env_default("BEAVER_CHAT_CSV", "")
+
+    def _load_csv_rows(csv_path: str) -> list[dict[str, str]]:
+        if not csv_path:
+            return []
+        path = pathlib.Path(csv_path)
+        if not path.exists():
+            return []
+        with path.open("r", newline="") as handle:
+            return list(csv.DictReader(handle))
+
+    def _animal_counts(rows: list[dict[str, str]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in rows:
+            animal = (row.get("animal_type") or "").strip().lower()
+            if not animal or animal == "none":
+                continue
+            counts[animal] = counts.get(animal, 0) + 1
+        return counts
+
+    def _answer_question(question: str, csv_path: str) -> str:
+        rows = _load_csv_rows(csv_path)
+        if not rows:
+            return "No CSV rows found. Provide a valid CSV path with animal_type data."
+        counts = _animal_counts(rows)
+        if not counts:
+            return "No animals found in the CSV."
+
+        q = question.strip().lower()
+        if not q:
+            return "Ask me about animal counts, like 'how many deer'."
+
+        match = re.search(r"how many ([a-z_]+)", q)
+        if match:
+            animal = match.group(1).strip().lower()
+            return f"{animal}: {counts.get(animal, 0)}"
+
+        if "list animals" in q or "what animals" in q:
+            animals = ", ".join(sorted(counts.keys()))
+            return f"Animals in CSV: {animals}"
+
+        if "total animals" in q or "total" in q:
+            total = sum(counts.values())
+            return f"Total animals: {total}"
+
+        return "I can answer: 'how many deer', 'list animals', or 'total animals'."
+
+    def chat_respond(message: str, history: list[dict[str, str]], csv_path: str):
+        response = _answer_question(message, csv_path)
+        history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": response},
+        ]
+        return history, ""
 
     with gr.Blocks(title="Beaver Detector") as demo:
         gr.Markdown("# Beaver Detector")
@@ -552,6 +608,22 @@ def build_app() -> gr.Blocks:
                     run_overlay,
                 ],
                 outputs=[batch_table, batch_csv, batch_status],
+            )
+
+        with gr.Tab("Chat"):
+            gr.Markdown("Ask about animal counts from a CSV.")
+            chat_csv = gr.Textbox(
+                value=default_chat_csv,
+                label="CSV Path",
+                placeholder="/path/to/beaver_results_batch.csv",
+            )
+            chatbot = gr.Chatbot(label="Animal Stats Chat")
+            chat_input = gr.Textbox(label="Question", placeholder="How many deer?")
+            chat_submit = gr.Button("Send")
+            chat_submit.click(
+                chat_respond,
+                inputs=[chat_input, chatbot, chat_csv],
+                outputs=[chatbot, chat_input],
             )
 
     return demo

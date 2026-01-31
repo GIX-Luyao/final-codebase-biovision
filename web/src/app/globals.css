@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f7efe2;
+  --ink: #1b1b1b;
+  --accent: #9a6b2f;
+  --accent-soft: #e6c17a;
+}
+
+@theme inline {
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-display);
+  --font-mono: var(--font-code);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display), system-ui, -apple-system, sans-serif;
+}
