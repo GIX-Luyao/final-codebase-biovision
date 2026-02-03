@@ -7,6 +7,24 @@
   --accent-soft: #e6c17a;
 }
 
+.lovable-scope {
+  --color-background: hsl(210 20% 98%);
+  --color-foreground: hsl(220 20% 15%);
+  --color-card: hsl(210 25% 97%);
+  --color-card-foreground: hsl(220 20% 15%);
+  --color-muted: hsl(210 20% 94%);
+  --color-muted-foreground: hsl(220 10% 45%);
+  --color-border: hsl(210 20% 90%);
+  --color-primary: hsl(152 60% 45%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-secondary: hsl(210 85% 55%);
+  --color-secondary-foreground: hsl(0 0% 100%);
+  --color-ring: hsl(152 60% 45%);
+  --glass: hsl(210 25% 99% / 0.8);
+  --glass-border: hsl(210 20% 85% / 0.5);
+  --shadow-glow-green: 0 0 40px hsl(152 60% 45% / 0.2);
+}
+
 @theme inline {
   --color-background: var(--paper);
   --color-foreground: var(--ink);
@@ -18,4 +36,34 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-display), system-ui, -apple-system, sans-serif;
+}
+
+@layer components {
+  .lovable-scope .glass-panel {
+    @apply bg-card/80 backdrop-blur-xl border border-border rounded-2xl;
+    box-shadow:
+      0 4px 24px -4px hsl(220 20% 20% / 0.08),
+      inset 0 1px 0 hsl(0 0% 100% / 0.6);
+  }
+
+  .lovable-scope .btn-primary {
+    @apply bg-primary text-primary-foreground font-semibold px-6 py-3 rounded-xl;
+    @apply transition-all duration-300 hover:scale-[1.02];
+    box-shadow: var(--shadow-glow-green);
+  }
+
+  .lovable-scope .btn-primary:hover {
+    box-shadow: 0 0 60px hsl(152 60% 45% / 0.35);
+  }
+
+  .lovable-scope .btn-ghost {
+    @apply text-muted-foreground hover:text-foreground font-medium px-4 py-2 rounded-lg;
+    @apply transition-all duration-200 hover:bg-foreground/5;
+  }
+
+  .lovable-scope .input-dark {
+    @apply bg-background border border-border text-foreground placeholder:text-muted-foreground;
+    @apply rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50;
+    @apply transition-all duration-200;
+  }
 }
