@@ -40,30 +40,66 @@ body {
 
 @layer components {
   .lovable-scope .glass-panel {
-    @apply bg-card/80 backdrop-blur-xl border border-border rounded-2xl;
+    background: var(--glass);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
     box-shadow:
       0 4px 24px -4px hsl(220 20% 20% / 0.08),
       inset 0 1px 0 hsl(0 0% 100% / 0.6);
+    backdrop-filter: blur(16px);
   }
 
   .lovable-scope .btn-primary {
-    @apply bg-primary text-primary-foreground font-semibold px-6 py-3 rounded-xl;
-    @apply transition-all duration-300 hover:scale-[1.02];
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.75rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
     box-shadow: var(--shadow-glow-green);
   }
 
+  .lovable-scope .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
   .lovable-scope .btn-primary:hover {
+    transform: scale(1.02);
     box-shadow: 0 0 60px hsl(152 60% 45% / 0.35);
   }
 
   .lovable-scope .btn-ghost {
-    @apply text-muted-foreground hover:text-foreground font-medium px-4 py-2 rounded-lg;
-    @apply transition-all duration-200 hover:bg-foreground/5;
+    color: var(--color-muted-foreground);
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+
+  .lovable-scope .btn-ghost:hover {
+    color: var(--color-foreground);
+    background: hsl(220 20% 15% / 0.05);
   }
 
   .lovable-scope .input-dark {
-    @apply bg-background border border-border text-foreground placeholder:text-muted-foreground;
-    @apply rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50;
-    @apply transition-all duration-200;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    color: var(--color-foreground);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .lovable-scope .input-dark::placeholder {
+    color: var(--color-muted-foreground);
+  }
+
+  .lovable-scope .input-dark:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px hsl(152 60% 45% / 0.25);
   }
 }
