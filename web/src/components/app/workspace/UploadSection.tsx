@@ -104,9 +104,7 @@ const UploadSection = ({ files, s3Path, onUpload, onS3PathChange }: UploadSectio
         ref={folderInputRef}
         type="file"
         multiple
-        // @ts-expect-error - non-standard directory picker
         webkitdirectory="true"
-        // @ts-expect-error - non-standard directory picker
         directory="true"
         onChange={handleFileChange}
         className="hidden"
