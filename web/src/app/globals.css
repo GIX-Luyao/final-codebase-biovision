@@ -1,105 +1,208 @@
 @import "tailwindcss";
 
-:root {
-  --paper: #f7efe2;
-  --ink: #1b1b1b;
-  --accent: #9a6b2f;
-  --accent-soft: #e6c17a;
-}
-
-.lovable-scope {
+@theme inline {
   --color-background: hsl(210 20% 98%);
   --color-foreground: hsl(220 20% 15%);
   --color-card: hsl(210 25% 97%);
   --color-card-foreground: hsl(220 20% 15%);
-  --color-muted: hsl(210 20% 94%);
-  --color-muted-foreground: hsl(220 10% 45%);
-  --color-border: hsl(210 20% 90%);
+  --color-popover: hsl(210 25% 99%);
+  --color-popover-foreground: hsl(220 20% 15%);
   --color-primary: hsl(152 60% 45%);
   --color-primary-foreground: hsl(0 0% 100%);
   --color-secondary: hsl(210 85% 55%);
   --color-secondary-foreground: hsl(0 0% 100%);
+  --color-muted: hsl(210 20% 94%);
+  --color-muted-foreground: hsl(220 10% 45%);
+  --color-accent: hsl(210 85% 50%);
+  --color-accent-foreground: hsl(0 0% 100%);
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(210 20% 90%);
+  --color-input: hsl(210 20% 94%);
   --color-ring: hsl(152 60% 45%);
-  --glass: hsl(210 25% 99% / 0.8);
-  --glass-border: hsl(210 20% 85% / 0.5);
-  --shadow-glow-green: 0 0 40px hsl(152 60% 45% / 0.2);
-}
-
-@theme inline {
-  --color-background: var(--paper);
-  --color-foreground: var(--ink);
+  --color-sidebar: hsl(210 25% 96%);
+  --color-sidebar-foreground: hsl(220 20% 15%);
+  --color-sidebar-primary: hsl(152 60% 45%);
+  --color-sidebar-primary-foreground: hsl(0 0% 100%);
+  --color-sidebar-accent: hsl(210 20% 92%);
+  --color-sidebar-accent-foreground: hsl(220 20% 15%);
+  --color-sidebar-border: hsl(210 20% 90%);
+  --color-sidebar-ring: hsl(152 60% 45%);
   --font-sans: var(--font-display);
   --font-mono: var(--font-code);
+  --radius: 0.75rem;
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-fade-in: fade-in 0.5s ease-out;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
 }
 
-body {
-  background: var(--paper);
-  color: var(--ink);
+:root {
+  --glass: hsl(210 25% 99% / 0.8);
+  --glass-border: hsl(210 20% 85% / 0.5);
+  --gradient-light: linear-gradient(
+    135deg,
+    hsl(210 20% 98%) 0%,
+    hsl(210 25% 96%) 50%,
+    hsl(220 20% 97%) 100%
+  );
+  --gradient-green: linear-gradient(
+    135deg,
+    hsl(152 60% 45%) 0%,
+    hsl(160 55% 40%) 100%
+  );
+  --gradient-blue: linear-gradient(
+    135deg,
+    hsl(210 85% 55%) 0%,
+    hsl(220 80% 50%) 100%
+  );
+  --shadow-glow-green: 0 0 40px hsl(152 60% 45% / 0.2);
+  --shadow-glow-blue: 0 0 40px hsl(210 85% 55% / 0.2);
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+* {
+  @apply border-border;
+}
+
+html {
   font-family: var(--font-display), system-ui, -apple-system, sans-serif;
 }
 
+body {
+  @apply bg-background text-foreground antialiased;
+  background: var(--gradient-light);
+  min-height: 100vh;
+}
+
 @layer components {
-  .lovable-scope .glass-panel {
-    background: var(--glass);
-    border: 1px solid var(--color-border);
-    border-radius: 1rem;
+  .glass-panel {
+    @apply bg-card/80 backdrop-blur-xl border border-border rounded-2xl;
     box-shadow:
       0 4px 24px -4px hsl(220 20% 20% / 0.08),
       inset 0 1px 0 hsl(0 0% 100% / 0.6);
-    backdrop-filter: blur(16px);
   }
 
-  .lovable-scope .btn-primary {
-    background: var(--color-primary);
-    color: var(--color-primary-foreground);
-    font-weight: 600;
-    padding: 0.75rem 1.5rem;
-    border-radius: 0.75rem;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  .glass-panel-hover {
+    @apply bg-card/80 backdrop-blur-xl border border-border rounded-2xl transition-all duration-300;
+    box-shadow:
+      0 4px 24px -4px hsl(220 20% 20% / 0.08),
+      inset 0 1px 0 hsl(0 0% 100% / 0.6);
+  }
+
+  .glass-panel-hover:hover {
+    @apply border-primary/20;
+    box-shadow:
+      0 8px 32px -4px hsl(220 20% 20% / 0.12),
+      inset 0 1px 0 hsl(0 0% 100% / 0.8);
+  }
+
+  .text-gradient-green {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-green);
+  }
+
+  .text-gradient-blue {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-blue);
+  }
+
+  .font-mono-tech {
+    font-family: var(--font-code), ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground font-semibold px-6 py-3 rounded-xl;
+    @apply transition-all duration-300 hover:scale-[1.02];
     box-shadow: var(--shadow-glow-green);
   }
 
-  .lovable-scope .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
+  .btn-primary:disabled {
+    @apply opacity-50 cursor-not-allowed;
     box-shadow: none;
   }
 
-  .lovable-scope .btn-primary:hover {
-    transform: scale(1.02);
+  .btn-primary:hover {
     box-shadow: 0 0 60px hsl(152 60% 45% / 0.35);
   }
 
-  .lovable-scope .btn-ghost {
-    color: var(--color-muted-foreground);
-    font-weight: 500;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    transition: color 0.2s ease, background 0.2s ease;
+  .btn-secondary {
+    @apply bg-secondary/10 text-secondary border border-secondary/30 font-medium px-6 py-3 rounded-xl;
+    @apply transition-all duration-300 hover:bg-secondary/20 hover:border-secondary/50;
   }
 
-  .lovable-scope .btn-ghost:hover {
-    color: var(--color-foreground);
-    background: hsl(220 20% 15% / 0.05);
+  .btn-ghost {
+    @apply text-muted-foreground hover:text-foreground font-medium px-4 py-2 rounded-lg;
+    @apply transition-all duration-200 hover:bg-foreground/5;
   }
 
-  .lovable-scope .input-dark {
-    background: var(--color-background);
-    border: 1px solid var(--color-border);
-    color: var(--color-foreground);
-    border-radius: 0.75rem;
-    padding: 0.75rem 1rem;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  .chip-status {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium font-mono;
   }
 
-  .lovable-scope .input-dark::placeholder {
-    color: var(--color-muted-foreground);
+  .chip-queued {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium font-mono bg-muted text-muted-foreground;
   }
 
-  .lovable-scope .input-dark:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 2px hsl(152 60% 45% / 0.25);
+  .chip-running {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium font-mono bg-primary/15 text-primary border border-primary/30;
+  }
+
+  .chip-complete {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium font-mono bg-emerald-500/15 text-emerald-600 border border-emerald-500/30;
+  }
+
+  .chip-error {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium font-mono bg-destructive/15 text-destructive border border-destructive/30;
+  }
+
+  .input-light {
+    @apply bg-background border border-border text-foreground placeholder:text-muted-foreground;
+    @apply rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50;
+    @apply transition-all duration-200;
+  }
+
+  .input-dark {
+    @apply bg-background border border-border text-foreground placeholder:text-muted-foreground;
+    @apply rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50;
+    @apply transition-all duration-200;
   }
 }
