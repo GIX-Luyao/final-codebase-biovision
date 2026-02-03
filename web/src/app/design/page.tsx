@@ -16,10 +16,7 @@ export default function DesignPage() {
             >
               Open design in new tab
             </a>
-            <a
-              href="/lovable-chat"
-              className="underline underline-offset-4"
-            >
+            <a href="/chatbot" className="underline underline-offset-4">
               Open Lovable chat
             </a>
           </div>
