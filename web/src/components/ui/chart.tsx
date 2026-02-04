@@ -242,14 +242,15 @@ ChartTooltipContent.displayName = "ChartTooltip";
 
 const ChartLegend = RechartsPrimitive.Legend;
 
-const ChartLegendContent = React.forwardRef<
-  HTMLDivElement,
-  React.ComponentProps<"div"> &
-    Pick<RechartsPrimitive.LegendProps, "payload" | "verticalAlign"> & {
-      hideIcon?: boolean;
-      nameKey?: string;
-    }
->(({ className, hideIcon = false, payload, verticalAlign = "bottom", nameKey }, ref) => {
+type ChartLegendContentProps = React.ComponentProps<"div"> & {
+  payload?: Array<Record<string, unknown>>;
+  verticalAlign?: "top" | "bottom" | "middle";
+  hideIcon?: boolean;
+  nameKey?: string;
+};
+
+const ChartLegendContent = React.forwardRef<HTMLDivElement, ChartLegendContentProps>(
+  ({ className, hideIcon = false, payload, verticalAlign = "bottom", nameKey }, ref) => {
   const { config } = useChart();
 
   if (!payload?.length) {
@@ -261,13 +262,14 @@ const ChartLegendContent = React.forwardRef<
       ref={ref}
       className={cn("flex items-center justify-center gap-4", verticalAlign === "top" ? "pb-3" : "pt-3", className)}
     >
-      {payload.map((item) => {
+      {payload.map((rawItem) => {
+        const item = rawItem as Record<string, any>;
         const key = `${nameKey || item.dataKey || "value"}`;
         const itemConfig = getPayloadConfigFromPayload(config, item, key);
 
         return (
           <div
-            key={item.value}
+            key={item.value ?? item.dataKey ?? key}
             className={cn("flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground")}
           >
             {itemConfig?.icon && !hideIcon ? (

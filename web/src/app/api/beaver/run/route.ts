@@ -25,6 +25,7 @@ async function runBeaverCli(inputPath: string, outputPath: string) {
   const python = process.env.BEAVER_PYTHON || "python3";
 
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
     const child = spawn(
       python,
       ["-m", "beaver_id.cli", inputPath, "--output", outputPath],
@@ -44,13 +45,19 @@ async function runBeaverCli(inputPath: string, outputPath: string) {
     });
 
     child.on("error", reject);
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
+      if (settled) return;
+      settled = true;
       if (code === 0) {
         resolve();
-      } else {
-        const suffix = stderr.trim() ? `\n${stderr.trim()}` : "";
-        reject(new Error(`beaver-id exited with code ${code}${suffix}`));
+        return;
       }
+      const suffix = stderr.trim() ? `\n${stderr.trim()}` : "";
+      if (signal) {
+        reject(new Error(`beaver-id terminated by ${signal}${suffix}`));
+        return;
+      }
+      reject(new Error(`beaver-id exited with code ${code ?? "null"}${suffix}`));
     });
   });
 }
