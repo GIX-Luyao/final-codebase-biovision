@@ -668,6 +668,8 @@ def main() -> None:
         return row
 
     rows: list[dict] = []
+    total = len(image_paths)
+    completed = 0
     with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         futures = {executor.submit(_run, path): path for path in image_paths}
         for future in as_completed(futures):
@@ -676,6 +678,8 @@ def main() -> None:
                 rows.append(future.result())
             except Exception as exc:
                 rows.append(error_row(path, args.model_id, exc))
+            completed += 1
+            print(f"Processed {completed}/{total}: {path}")
 
     rows.sort(key=lambda row: row["image_path"])
     write_csv(rows, args.output)
