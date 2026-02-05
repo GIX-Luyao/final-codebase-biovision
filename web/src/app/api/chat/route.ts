@@ -1,19 +1,12 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const API_BASE = process.env.BEAVER_API_BASE_URL;
-
-function requireApiBase() {
-  if (!API_BASE) {
-    throw new Error("Missing BEAVER_API_BASE_URL for backend function.");
-  }
-  return API_BASE;
-}
+import { resolveBeaverApiBase } from "@/lib/beaverApiBase";
 
 export async function POST(req: Request) {
   try {
     const payload = await req.json();
-    const base = requireApiBase();
+    const base = resolveBeaverApiBase().value;
     const url = new URL("/api/chat", base);
     const response = await fetch(url, {
       method: "POST",

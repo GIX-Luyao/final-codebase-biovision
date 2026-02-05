@@ -1,14 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const API_BASE = process.env.BEAVER_API_BASE_URL;
-
-function requireApiBase() {
-  if (!API_BASE) {
-    throw new Error("Missing BEAVER_API_BASE_URL for backend function.");
-  }
-  return API_BASE;
-}
+import { resolveBeaverApiBase } from "@/lib/beaverApiBase";
 
 export async function GET(
   _req: Request,
@@ -16,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const base = requireApiBase();
+    const base = resolveBeaverApiBase().value;
     const url = new URL(`/api/jobs/${id}`, base);
     const response = await fetch(url);
     const text = await response.text();
