@@ -20,6 +20,17 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Backend API (Amplify Function)
+
+When deploying on Amplify, the Next.js API routes act as thin proxies to a backend function.
+Set the base URL for the function in your environment:
+
+```
+BEAVER_API_BASE_URL=https://your-function-url.example.com
+```
+
+The UI will call `/api/classify` and `/api/jobs`, which forward to the function.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

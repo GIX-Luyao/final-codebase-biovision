@@ -1,7 +1,5 @@
 "use client";
 
-import { DefaultChatTransport } from "ai";
-import { useChat } from "@ai-sdk/react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { postProcessAnimalOutput } from "@/lib/animalPostProcess";
 
@@ -107,13 +105,14 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const [showCsvPanel, setShowCsvPanel] = useState(true);
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ id: string; role: "user" | "assistant"; text: string }>
+  >([]);
+  const [chatStatus, setChatStatus] = useState<"idle" | "loading">("idle");
+  const [chatError, setChatError] = useState("");
 
   const folderInputRef = useRef<HTMLInputElement>(null);
   const csvFileRef = useRef<HTMLInputElement>(null);
-
-  const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
-  });
 
   useEffect(() => {
     const inputEl = folderInputRef.current;
@@ -254,13 +253,10 @@ export default function Home() {
         }
       }
 
-      const response = await fetch(
-        useClassifyApi ? "/api/classify" : useJobsApi ? "/api/jobs" : "/api/beaver/run",
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
+      const response = await fetch(useClassifyApi ? "/api/classify" : "/api/jobs", {
+        method: "POST",
+        body: formData,
+      });
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -304,12 +300,6 @@ export default function Home() {
       } else if (useClassifyApi) {
         const mapped = mapClassifyResults(payload.results || []);
         setResults(mapped);
-        setJobId(null);
-        setJobStatus("");
-        setJobCsvKey("");
-        setJobProgress({ completed: 0, total: 0 });
-      } else {
-        setResults(payload.results || []);
         setJobId(null);
         setJobStatus("");
         setJobCsvKey("");
@@ -374,24 +364,43 @@ export default function Home() {
 
   const handleSendChat = async (messageText: string = input) => {
     if (!messageText.trim()) return;
-    await sendMessage(
-      { text: messageText },
-      { body: { csvText, csvPath, modelId } },
-    );
+    setChatError("");
+    const userMessage = {
+      id: `user_${Date.now()}`,
+      role: "user" as const,
+      text: messageText.trim(),
+    };
+    const nextMessages = [...chatMessages, userMessage];
+    setChatMessages(nextMessages);
     setInput("");
+    setChatStatus("loading");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: messageText.trim(), csvText, modelId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Chat request failed.");
+      }
+      const assistantMessage = {
+        id: `assistant_${Date.now()}`,
+        role: "assistant" as const,
+        text: payload.text || "",
+      };
+      setChatMessages([...nextMessages, assistantMessage]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setChatError(message);
+    } finally {
+      setChatStatus("idle");
+    }
   };
 
-  const displayMessages = useMemo(() => {
-    return messages.map((message) => {
-      const text = message.parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("");
-      return { id: message.id, role: message.role, text };
-    });
-  }, [messages]);
+  const displayMessages = useMemo(() => chatMessages, [chatMessages]);
 
-  const isTyping = status === "submitted" || status === "streaming";
+  const isTyping = chatStatus === "loading";
 
   const toggleRow = (id: string) => {
     setExpandedRows((prev) =>
@@ -437,7 +446,7 @@ export default function Home() {
           <div className="mt-auto rounded-2xl border border-[hsl(var(--border))] bg-white/80 p-3 text-xs text-[hsl(var(--muted-foreground))] shadow-sm">
             Local runner
             <p className="mt-1 text-[11px]">
-              Uses your `/api/beaver/run` + Bedrock chat.
+              Uses `/api/classify` (<=5 images) or `/api/jobs` (batch) + Bedrock chat.
             </p>
           </div>
         </aside>
@@ -761,8 +770,8 @@ export default function Home() {
                           {message.text}
                         </div>
                       ))}
-                      {error && (
-                        <p className="text-xs text-red-600">Error: {error.message}</p>
+                      {chatError && (
+                        <p className="text-xs text-red-600">Error: {chatError}</p>
                       )}
                     </div>
                   </div>

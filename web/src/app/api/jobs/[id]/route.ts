@@ -1,7 +1,14 @@
-import { getJob } from "@/lib/jobsDb";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const API_BASE = process.env.BEAVER_API_BASE_URL;
+
+function requireApiBase() {
+  if (!API_BASE) {
+    throw new Error("Missing BEAVER_API_BASE_URL for backend function.");
+  }
+  return API_BASE;
+}
 
 export async function GET(
   _req: Request,
@@ -9,27 +16,16 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const job = await getJob(id);
-    if (!job) {
-      return new Response(JSON.stringify({ error: "Job not found." }), {
-        status: 404,
-      });
-    }
-
-    return new Response(
-      JSON.stringify({
-        job_id: job.id,
-        status: job.status,
-        created_at: job.created_at,
-        updated_at: job.updated_at,
-        total_images: job.total_images,
-        completed_images: job.completed_images,
-        error: job.error,
-        results: job.results || [],
-        csv_s3_key: job.csv_s3_key,
-      }),
-      { status: 200 },
-    );
+    const base = requireApiBase();
+    const url = new URL(`/api/jobs/${id}`, base);
+    const response = await fetch(url);
+    const text = await response.text();
+    return new Response(text, {
+      status: response.status,
+      headers: {
+        "content-type": response.headers.get("content-type") || "application/json",
+      },
+    });
   } catch (error) {
     console.error("Job status API error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";

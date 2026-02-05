@@ -1,16 +1,13 @@
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { Readable } from "node:stream";
-import { getJob } from "@/lib/jobsDb";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function streamToBuffer(stream: Readable) {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+const API_BASE = process.env.BEAVER_API_BASE_URL;
+
+function requireApiBase() {
+  if (!API_BASE) {
+    throw new Error("Missing BEAVER_API_BASE_URL for backend function.");
   }
-  return Buffer.concat(chunks);
+  return API_BASE;
 }
 
 export async function GET(
@@ -19,47 +16,17 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const job = await getJob(id);
-    if (!job) {
-      return new Response(JSON.stringify({ error: "Job not found." }), {
-        status: 404,
-      });
-    }
-    if (!job.csv_s3_key) {
-      return new Response(JSON.stringify({ error: "CSV not ready." }), {
-        status: 400,
-      });
-    }
-
-    const bucket = process.env.BEAVER_JOB_BUCKET;
-    const region = process.env.AWS_REGION;
-    if (!bucket || !region) {
-      return new Response(JSON.stringify({ error: "Missing S3 configuration." }), {
-        status: 500,
-      });
-    }
-
-    const s3Client = new S3Client({ region });
-    const result = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: bucket,
-        Key: job.csv_s3_key,
-      }),
-    );
-
-    const body = result.Body as Readable | undefined;
-    if (!body) {
-      return new Response(JSON.stringify({ error: "CSV not found." }), {
-        status: 404,
-      });
-    }
-
-    const buffer = await streamToBuffer(body);
+    const base = requireApiBase();
+    const url = new URL(`/api/jobs/${id}/csv`, base);
+    const response = await fetch(url);
+    const buffer = await response.arrayBuffer();
     return new Response(buffer, {
-      status: 200,
+      status: response.status,
       headers: {
-        "content-type": "text/csv",
-        "content-disposition": `attachment; filename=\"job_${id}.csv\"`,
+        "content-type": response.headers.get("content-type") || "text/csv",
+        "content-disposition":
+          response.headers.get("content-disposition") ||
+          `attachment; filename=\"job_${id}.csv\"`,
       },
     });
   } catch (error) {
