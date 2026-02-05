@@ -26,8 +26,9 @@ type DetectionResult = {
   animal_reason: string;
   bbox: string;
   overlay_location: string;
-  overlay_confidence: string;
+  overlay_confidence: number | string;
   overlay_reason: string;
+  overlay_temperature: string;
   exif_timestamp: string;
   exif_location: string;
   error: string;
