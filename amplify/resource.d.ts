@@ -1,3 +1,3 @@
-declare module "./functions/beaver-api/resource.js" {
+declare module "./functions/beaver-api/resource" {
   export const beaverApi: unknown;
 }
