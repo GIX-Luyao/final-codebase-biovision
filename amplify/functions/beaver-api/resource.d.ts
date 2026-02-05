@@ -1,0 +1,1 @@
+export const beaverApi: any;
