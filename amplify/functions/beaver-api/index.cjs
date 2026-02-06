@@ -8,12 +8,21 @@ const {
   PutObjectCommand,
   ListObjectsV2Command,
   GetObjectCommand,
+  HeadBucketCommand,
 } = require("@aws-sdk/client-s3");
 const { parse: parseCsv } = require("csv-parse/sync");
-const { bedrock } = require("@ai-sdk/amazon-bedrock");
+const { createAmazonBedrock } = require("@ai-sdk/amazon-bedrock");
 const { generateText } = require("ai");
-const { classifyImageBuffer } = require("./lib/classify");
+const { classifyImageBuffer, getSharpAvailability } = require("./lib/classify");
 const { createJob, updateJob, getJob } = require("./lib/jobsDb");
+
+const bedrock = createAmazonBedrock({
+  region:
+    process.env.BEAVER_BEDROCK_REGION ||
+    process.env.AWS_REGION ||
+    process.env.AWS_DEFAULT_REGION ||
+    "us-east-2",
+});
 
 if (!globalThis.crypto) {
   globalThis.crypto = webcrypto;
@@ -104,6 +113,31 @@ function requireEnv(name) {
   return value;
 }
 
+function isOversizeNoSharpError(error) {
+  if (!error) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("sharp is unavailable") && message.includes("5MB");
+}
+
+function isBedrockOversizeError(error) {
+  if (!error) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("exceeds 5 MB maximum");
+}
+
+function buildErrorResult(filename, message, extra = {}) {
+  return {
+    filename,
+    is_beaver: false,
+    confidence: 0,
+    common_name: "unknown",
+    group: "unknown",
+    notes: message,
+    error: message,
+    ...extra,
+  };
+}
+
 function parseS3Path(value) {
   if (!value.startsWith("s3://")) {
     throw new Error("Invalid S3 path. Use s3://bucket/prefix");
@@ -120,6 +154,32 @@ function parseS3Path(value) {
 function inferS3Region(bucket) {
   const match = bucket.match(/-(us-[a-z]+-\d)$/);
   return match ? match[1] : null;
+}
+
+async function resolveS3Region(bucket, fallbackRegion) {
+  const envRegion = process.env.S3_REGION;
+  if (envRegion) {
+    return envRegion;
+  }
+  const inferred = inferS3Region(bucket);
+  if (inferred) {
+    return inferred;
+  }
+
+  const region = fallbackRegion || "us-east-2";
+  const probeClient = new S3Client({ region });
+  try {
+    await probeClient.send(new HeadBucketCommand({ Bucket: bucket }));
+    return region;
+  } catch (error) {
+    const headerRegion =
+      error?.$metadata?.httpHeaders?.["x-amz-bucket-region"] ||
+      error?.$response?.headers?.["x-amz-bucket-region"];
+    if (headerRegion) {
+      return headerRegion;
+    }
+    throw error;
+  }
 }
 
 async function streamToBuffer(stream) {
@@ -229,12 +289,32 @@ async function processJob(params) {
           ContentType: file.mimeType || "application/octet-stream",
         }),
       );
-      const output = await classifyImageBuffer(modelId, file.buffer);
-      return {
-        filename: file.filename,
-        ...output,
-        s3_key: key,
-      };
+      try {
+        const output = await classifyImageBuffer(modelId, file.buffer, {
+          allowOversizeNoSharp: false,
+        });
+        return {
+          filename: file.filename,
+          ...output,
+          s3_key: key,
+        };
+      } catch (error) {
+        if (isOversizeNoSharpError(error)) {
+          return buildErrorResult(
+            file.filename,
+            "Image exceeds 5MB and sharp is unavailable. Please upload a smaller image or enable the sharp Lambda layer.",
+            { s3_key: key },
+          );
+        }
+        if (isBedrockOversizeError(error)) {
+          return buildErrorResult(
+            file.filename,
+            "Bedrock rejected the image because it exceeds 5MB. Enable the sharp Lambda layer or provide smaller images.",
+            { s3_key: key },
+          );
+        }
+        throw error;
+      }
     }),
     ...s3Inputs.map((item) => async () => {
       const getResult = await inputClient.send(
@@ -245,25 +325,39 @@ async function processJob(params) {
       );
       const body = getResult.Body;
       if (!body) {
+        return buildErrorResult(path.basename(item.key), "Missing S3 body", {
+          s3_key: item.key,
+          s3_bucket: item.bucket,
+        });
+      }
+      const buffer = await streamToBuffer(body);
+      try {
+        const output = await classifyImageBuffer(modelId, buffer, {
+          allowOversizeNoSharp: true,
+        });
         return {
           filename: path.basename(item.key),
-          is_beaver: false,
-          confidence: 0,
-          common_name: "unknown",
-          group: "unknown",
-          notes: "Missing S3 body",
+          ...output,
           s3_key: item.key,
           s3_bucket: item.bucket,
         };
+      } catch (error) {
+        if (isOversizeNoSharpError(error)) {
+          return buildErrorResult(
+            path.basename(item.key),
+            "Image exceeds 5MB and sharp is unavailable. Please upload a smaller image or enable the sharp Lambda layer.",
+            { s3_key: item.key, s3_bucket: item.bucket },
+          );
+        }
+        if (isBedrockOversizeError(error)) {
+          return buildErrorResult(
+            path.basename(item.key),
+            "Bedrock rejected the image because it exceeds 5MB. Enable the sharp Lambda layer or provide smaller images.",
+            { s3_key: item.key, s3_bucket: item.bucket },
+          );
+        }
+        throw error;
       }
-      const buffer = await streamToBuffer(body);
-      const output = await classifyImageBuffer(modelId, buffer);
-      return {
-        filename: path.basename(item.key),
-        ...output,
-        s3_key: item.key,
-        s3_bucket: item.bucket,
-      };
     }),
   ];
 
@@ -326,8 +420,7 @@ async function handleClassify(event) {
       return jsonResponse(400, { error: "S3 path must point to an image file." });
     }
     const region = requireEnv("AWS_REGION");
-    const inferred = inferS3Region(parsed.bucket);
-    const s3Region = inferred || process.env.S3_REGION || region;
+    const s3Region = await resolveS3Region(parsed.bucket, region);
     const s3Client = new S3Client({ region: s3Region });
     const response = await s3Client.send(
       new GetObjectCommand({
@@ -339,16 +432,56 @@ async function handleClassify(event) {
       return jsonResponse(404, { error: "S3 object not found." });
     }
     const buffer = await streamToBuffer(response.Body);
-    const output = await classifyImageBuffer(modelId, buffer);
-    return jsonResponse(200, {
-      results: [{ filename: path.basename(parsed.prefix), ...output }],
-    });
+    try {
+      const output = await classifyImageBuffer(modelId, buffer, {
+        allowOversizeNoSharp: true,
+      });
+      return jsonResponse(200, {
+        results: [{ filename: path.basename(parsed.prefix), ...output }],
+      });
+    } catch (error) {
+      if (isOversizeNoSharpError(error)) {
+        return jsonResponse(413, {
+          error:
+            "Image exceeds 5MB and sharp is unavailable. Please upload a smaller image or enable the sharp Lambda layer.",
+          sharp_available: getSharpAvailability(),
+        });
+      }
+      if (isBedrockOversizeError(error)) {
+        return jsonResponse(422, {
+          error:
+            "Bedrock rejected the image because it exceeds 5MB. Enable the sharp Lambda layer or provide smaller images.",
+          sharp_available: getSharpAvailability(),
+        });
+      }
+      throw error;
+    }
   }
 
   const results = [];
   for (const file of allFiles) {
-    const output = await classifyImageBuffer(modelId, file.buffer);
-    results.push({ filename: file.filename, ...output });
+    try {
+      const output = await classifyImageBuffer(modelId, file.buffer, {
+        allowOversizeNoSharp: false,
+      });
+      results.push({ filename: file.filename, ...output });
+    } catch (error) {
+      if (isOversizeNoSharpError(error)) {
+        return jsonResponse(413, {
+          error:
+            "Image exceeds 5MB and sharp is unavailable. Please upload a smaller image or enable the sharp Lambda layer.",
+          sharp_available: getSharpAvailability(),
+        });
+      }
+      if (isBedrockOversizeError(error)) {
+        return jsonResponse(422, {
+          error:
+            "Bedrock rejected the image because it exceeds 5MB. Enable the sharp Lambda layer or provide smaller images.",
+          sharp_available: getSharpAvailability(),
+        });
+      }
+      throw error;
+    }
   }
 
   return jsonResponse(200, { results });
@@ -386,11 +519,8 @@ async function handleJobs(event) {
   let s3Inputs = [];
   if (s3Path) {
     parsedS3 = parseS3Path(s3Path);
-    if (!process.env.S3_REGION) {
-      const inferred = inferS3Region(parsedS3.bucket);
-      if (inferred) {
-        s3Region = inferred;
-      }
+    if (!fields.s3Region && !fields.s3_region && !process.env.S3_REGION) {
+      s3Region = await resolveS3Region(parsedS3.bucket, region);
     }
   }
 
