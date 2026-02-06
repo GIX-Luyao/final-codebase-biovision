@@ -10,6 +10,7 @@ const {
   GetObjectCommand,
   HeadBucketCommand,
 } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { parse: parseCsv } = require("csv-parse/sync");
 const { createAmazonBedrock } = require("@ai-sdk/amazon-bedrock");
 const { generateText } = require("ai");
@@ -44,6 +45,18 @@ function jsonResponse(status, payload) {
     headers: { "content-type": "application/json", ...corsHeaders },
     body: JSON.stringify(payload),
   };
+}
+
+function parseJsonBody(event) {
+  if (!event?.body) return {};
+  const raw = event.isBase64Encoded
+    ? Buffer.from(event.body, "base64").toString("utf8")
+    : event.body;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
 function textResponse(status, body, contentType) {
@@ -564,6 +577,42 @@ async function handleJobs(event) {
   });
 }
 
+async function handleUploadUrl(event) {
+  const payload = parseJsonBody(event);
+  const filename = String(payload.filename || "").trim();
+  if (!filename) {
+    return jsonResponse(400, { error: "Missing filename." });
+  }
+
+  const contentType = String(payload.content_type || payload.contentType || "").trim();
+  const prefix =
+    String(payload.prefix || "").trim() || `uploads/${randomUUID()}`;
+  const safeName = path.basename(filename).replace(/\s+/g, "_");
+  const key = `${prefix}/${randomUUID()}_${safeName}`;
+
+  const bucket = requireEnv("BEAVER_JOB_BUCKET");
+  const region = requireEnv("AWS_REGION");
+  const s3Client = new S3Client({ region });
+
+  const uploadUrl = await getSignedUrl(
+    s3Client,
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType || "application/octet-stream",
+    }),
+    { expiresIn: 300 },
+  );
+
+  return jsonResponse(200, {
+    upload_url: uploadUrl,
+    s3_path: `s3://${bucket}/${key}`,
+    bucket,
+    key,
+    prefix,
+  });
+}
+
 async function handleJobStatus(jobId) {
   const job = await getJob(jobId);
   if (!job) {
@@ -732,6 +781,9 @@ exports.handler = async (event) => {
     }
     if (method === "POST" && normalizedPath === "/api/jobs") {
       return await handleJobs(event);
+    }
+    if (method === "POST" && normalizedPath === "/api/upload-url") {
+      return await handleUploadUrl(event);
     }
     if (method === "GET" && normalizedPath.startsWith("/api/jobs/")) {
       const parts = normalizedPath.split("/").filter(Boolean);

@@ -250,8 +250,51 @@ export default function Home() {
         uploadIsLocal &&
         typeof window !== "undefined" &&
         window.location.hostname.endsWith("amplifyapp.com");
+      let directUsesJobs = false;
 
-      if (s3) {
+      if (shouldUseDirectApi) {
+        const prefix = `uploads/${Date.now().toString(36)}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        const uploadedPaths: string[] = [];
+
+        for (const file of allFiles) {
+          const signResponse = await fetch(`${directApiBase}/api/upload-url`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              filename: file.name,
+              content_type: file.type,
+              prefix,
+            }),
+          });
+          if (!signResponse.ok) {
+            const body = await signResponse.json().catch(() => ({}));
+            throw new Error(body.error || "Failed to prepare upload.");
+          }
+          const signed = await signResponse.json();
+          if (!signed.upload_url || !signed.s3_path) {
+            throw new Error("Upload URL missing from server.");
+          }
+          const putResponse = await fetch(signed.upload_url, {
+            method: "PUT",
+            headers: file.type ? { "content-type": file.type } : undefined,
+            body: file,
+          });
+          if (!putResponse.ok) {
+            throw new Error("S3 upload failed.");
+          }
+          uploadedPaths.push(signed.s3_path as string);
+        }
+
+        if (uploadedPaths.length === 1) {
+          formData.set("s3Path", uploadedPaths[0]);
+        } else {
+          directUsesJobs = true;
+          const bucketPrefix = uploadedPaths[0].replace(/^(s3:\/\/[^/]+\/).+$/, "$1");
+          formData.set("s3Path", `${bucketPrefix}${prefix}/`);
+        }
+      } else if (s3) {
         formData.set("s3Path", s3);
       } else {
         if (allFiles.length === 0) {
@@ -262,7 +305,10 @@ export default function Home() {
         }
       }
 
-      const endpoint = useClassifyApi ? "/api/classify" : "/api/jobs";
+      const useJobsApiRuntime = useJobsApi || directUsesJobs;
+      const useClassifyApiRuntime = !useJobsApiRuntime && useClassifyApi;
+
+      const endpoint = useClassifyApiRuntime ? "/api/classify" : "/api/jobs";
       const url = shouldUseDirectApi ? new URL(endpoint, directApiBase).toString() : endpoint;
 
       const response = await fetch(url, {
@@ -277,7 +323,7 @@ export default function Home() {
 
       const payload = await response.json();
 
-      if (useJobsApi) {
+      if (useJobsApiRuntime) {
         const nextJobId = payload.job_id as string | undefined;
         if (!nextJobId) {
           throw new Error("Job creation failed.");
@@ -309,7 +355,7 @@ export default function Home() {
           }
           attempts += 1;
         }
-      } else if (useClassifyApi) {
+      } else if (useClassifyApiRuntime) {
         const mapped = mapClassifyResults(payload.results || []);
         setResults(mapped);
         setJobId(null);
