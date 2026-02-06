@@ -292,7 +292,8 @@ async function processJob(params) {
 async function handleClassify(event) {
   const { fields, files } = await parseMultipart(event);
   const allFiles = files.filter((file) => file.fieldName === "file" || file.fieldName === "files");
-  if (allFiles.length === 0) {
+  const s3Path = String(fields.s3Path || fields.s3_path || "").trim();
+  if (allFiles.length === 0 && !s3Path) {
     return jsonResponse(400, { error: "No files uploaded." });
   }
   if (allFiles.length > MAX_CLASSIFY) {
@@ -307,6 +308,35 @@ async function handleClassify(event) {
   if (!modelId) {
     return jsonResponse(400, {
       error: "Missing Bedrock model id. Set BEAVER_BEDROCK_MODEL_ID.",
+    });
+  }
+
+  if (s3Path) {
+    const parsed = parseS3Path(s3Path);
+    if (parsed.prefix.endsWith("/")) {
+      return jsonResponse(400, { error: "S3 path is a folder; use batch jobs." });
+    }
+    const ext = path.extname(parsed.prefix).toLowerCase();
+    if (!IMAGE_EXTENSIONS.has(ext)) {
+      return jsonResponse(400, { error: "S3 path must point to an image file." });
+    }
+    const region = requireEnv("AWS_REGION");
+    const inferred = inferS3Region(parsed.bucket);
+    const s3Region = inferred || process.env.S3_REGION || region;
+    const s3Client = new S3Client({ region: s3Region });
+    const response = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: parsed.bucket,
+        Key: parsed.prefix,
+      }),
+    );
+    if (!response.Body) {
+      return jsonResponse(404, { error: "S3 object not found." });
+    }
+    const buffer = await streamToBuffer(response.Body);
+    const output = await classifyImageBuffer(modelId, buffer);
+    return jsonResponse(200, {
+      results: [{ filename: path.basename(parsed.prefix), ...output }],
     });
   }
 

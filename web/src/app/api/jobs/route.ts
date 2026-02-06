@@ -5,10 +5,16 @@ import { resolveBeaverApiBase } from "@/lib/beaverApiBase";
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
     const base = resolveBeaverApiBase().value;
     const url = new URL("/api/jobs", base);
-    const response = await fetch(url, { method: "POST", body: formData });
+    const contentType = req.headers.get("content-type") || "";
+    const body = await req.arrayBuffer();
+    const headers = contentType ? { "content-type": contentType } : undefined;
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body,
+    });
     const text = await response.text();
     return new Response(text, {
       status: response.status,

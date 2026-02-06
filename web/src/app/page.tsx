@@ -239,8 +239,10 @@ export default function Home() {
       const formData = new FormData();
       const s3 = s3Path.trim();
       const allFiles = [...files, ...folderFiles];
-      const useClassifyApi = !s3 && allFiles.length > 0 && allFiles.length <= 5;
-      const useJobsApi = Boolean(s3) || (!s3 && allFiles.length > 5);
+      const isSingleS3File = Boolean(s3) && /\.(jpe?g|png|tiff?|webp)$/i.test(s3);
+      const useClassifyApi =
+        isSingleS3File || (!s3 && allFiles.length > 0 && allFiles.length <= 5);
+      const useJobsApi = !useClassifyApi && (Boolean(s3) || (!s3 && allFiles.length > 5));
 
       if (s3) {
         formData.set("s3Path", s3);
