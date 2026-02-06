@@ -82,6 +82,13 @@ target/
 .DS_Store
 ocr_debug/
 beaver_results_*.csv
+beaver_results.csv
+animal_agent_beaver_eval.csv
+MIGRATION_TODO.md
+amplify_outputs.json
+amplify/amplify_outputs.json
+.amplify/
+package-lock.json
 
 # IPython
 profile_default/
