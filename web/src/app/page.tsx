@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { postProcessAnimalOutput } from "@/lib/animalPostProcess";
+import { resolveBeaverApiBase } from "@/lib/beaverApiBase";
 
 type DetectionResult = {
   id: string;
@@ -243,6 +244,12 @@ export default function Home() {
       const useClassifyApi =
         isSingleS3File || (!s3 && allFiles.length > 0 && allFiles.length <= 5);
       const useJobsApi = !useClassifyApi && (Boolean(s3) || (!s3 && allFiles.length > 5));
+      const uploadIsLocal = !s3 && allFiles.length > 0;
+      const directApiBase = resolveBeaverApiBase().value;
+      const shouldUseDirectApi =
+        uploadIsLocal &&
+        typeof window !== "undefined" &&
+        window.location.hostname.endsWith("amplifyapp.com");
 
       if (s3) {
         formData.set("s3Path", s3);
@@ -255,7 +262,10 @@ export default function Home() {
         }
       }
 
-      const response = await fetch(useClassifyApi ? "/api/classify" : "/api/jobs", {
+      const endpoint = useClassifyApi ? "/api/classify" : "/api/jobs";
+      const url = shouldUseDirectApi ? new URL(endpoint, directApiBase).toString() : endpoint;
+
+      const response = await fetch(url, {
         method: "POST",
         body: formData,
       });
