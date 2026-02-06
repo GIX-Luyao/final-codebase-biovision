@@ -505,6 +505,10 @@ async function handleJobs(event) {
   const { fields, files } = await parseMultipart(event);
   const uploadFiles = files.filter((file) => file.fieldName === "files");
   const s3Path = String(fields.s3Path || fields.s3_path || "").trim();
+  console.log("[jobs] request", {
+    uploadCount: uploadFiles.length,
+    hasS3Path: Boolean(s3Path),
+  });
 
   if (uploadFiles.length === 0 && !s3Path) {
     return jsonResponse(400, { error: "No files or S3 path provided." });
@@ -554,6 +558,7 @@ async function handleJobs(event) {
 
   const queueUrl = process.env.BEAVER_JOB_QUEUE_URL;
   if (queueUrl) {
+    console.log("[jobs] enqueue", { queueUrl, jobId });
     const uploadedInputs = [];
     if (uploadFiles.length > 0) {
       for (const file of uploadFiles) {
@@ -589,6 +594,7 @@ async function handleJobs(event) {
         }),
       }),
     );
+    console.log("[jobs] enqueued", { jobId, total: allInputs.length });
     return jsonResponse(202, {
       job_id: jobId,
       status: "queued",
@@ -820,6 +826,10 @@ exports.handler = async (event) => {
         if (!payload.jobId || !payload.modelId || !payload.bucket || !payload.region) {
           throw new Error("Invalid job payload.");
         }
+        console.log("[jobs] dequeue", {
+          jobId: payload.jobId,
+          total: Array.isArray(payload.s3Inputs) ? payload.s3Inputs.length : 0,
+        });
         const s3Inputs = Array.isArray(payload.s3Inputs) ? payload.s3Inputs : [];
         await processJob({
           jobId: payload.jobId,
