@@ -2,6 +2,7 @@ const Busboy = require("busboy");
 const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 const { Readable } = require("node:stream");
+const { webcrypto } = require("node:crypto");
 const {
   S3Client,
   PutObjectCommand,
@@ -13,6 +14,10 @@ const { bedrock } = require("@ai-sdk/amazon-bedrock");
 const { generateText } = require("ai");
 const { classifyImageBuffer } = require("./lib/classify");
 const { createJob, updateJob, getJob } = require("./lib/jobsDb");
+
+if (!globalThis.crypto) {
+  globalThis.crypto = webcrypto;
+}
 
 const MAX_CLASSIFY = 5;
 const MAX_FILES = 1000;
