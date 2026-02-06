@@ -98,7 +98,6 @@ export default function Home() {
     completed: 0,
     total: 0,
   });
-  const [lastJobsUrl, setLastJobsUrl] = useState("");
 
   const [csvPath, setCsvPath] = useState("");
   const [modelId, setModelId] = useState("");
@@ -311,7 +310,6 @@ export default function Home() {
 
       const endpoint = useClassifyApiRuntime ? "/api/classify" : "/api/jobs";
       const url = shouldUseDirectApi ? new URL(endpoint, directApiBase).toString() : endpoint;
-      setLastJobsUrl(url);
 
       const response = await fetch(url, {
         method: "POST",
@@ -586,11 +584,6 @@ export default function Home() {
                   {runError && (
                     <p className="rounded-[var(--radius)] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                       {runError}
-                    </p>
-                  )}
-                  {lastJobsUrl && (
-                    <p className="rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2 text-[11px] text-[hsl(var(--muted-foreground))]">
-                      Last jobs URL: {lastJobsUrl}
                     </p>
                   )}
 
