@@ -3,6 +3,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { postProcessAnimalOutput } from "@/lib/animalPostProcess";
 import { resolveBeaverApiBase } from "@/lib/beaverApiBase";
+import { AuthModal } from "@/components/auth/AuthModal";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 function IconUpload(props: { className?: string }) {
   return (
@@ -259,7 +261,9 @@ async function readErrorFromResponse(response: Response) {
 }
 
 export default function Home() {
+  const auth = useAuth();
   const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "chat">("home");
+  const [showAuth, setShowAuth] = useState(false);
   const [s3Path, setS3Path] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -881,9 +885,18 @@ export default function Home() {
     );
   };
 
+  const goToTab = (tab: "home" | "dashboard" | "chat") => {
+    if (tab !== "home" && auth.ready && !auth.user) {
+      setShowAuth(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
 
   return (
     <div className="relative min-h-screen text-[hsl(var(--foreground))]">
+      <AuthModal open={showAuth} onClose={() => setShowAuth(false)} />
       {activeTab === "home" && (
         <div
           aria-hidden="true"
@@ -901,41 +914,60 @@ export default function Home() {
             </p>
           </div>
 
-	          <nav className="flex items-center gap-2 text-sm">
-	            <button
-	              type="button"
-	              onClick={() => setActiveTab("home")}
-	              className={`rounded px-2 py-1 text-sm font-medium transition ${
-	                activeTab === "home"
-	                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
-	                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-	              }`}
-	            >
-	              Home
-	            </button>
-	            <button
-	              type="button"
-	              onClick={() => setActiveTab("dashboard")}
-	              className={`rounded px-2 py-1 text-sm font-medium transition ${
-	                activeTab === "dashboard"
-	                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
-	                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-	              }`}
-	            >
-	              Workflow
-	            </button>
-	            <button
-	              type="button"
-	              onClick={() => setActiveTab("chat")}
-	              className={`rounded px-2 py-1 text-sm font-medium transition ${
-	                activeTab === "chat"
-	                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
-	                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-	              }`}
-	            >
-	              Chat
-	            </button>
-	          </nav>
+          <nav className="flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => goToTab("home")}
+              className={`rounded px-2 py-1 text-sm font-medium transition ${
+                activeTab === "home"
+                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
+                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+              }`}
+            >
+              Home
+            </button>
+            <button
+              type="button"
+              onClick={() => goToTab("dashboard")}
+              className={`rounded px-2 py-1 text-sm font-medium transition ${
+                activeTab === "dashboard"
+                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
+                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+              }`}
+            >
+              Workflow
+            </button>
+            <button
+              type="button"
+              onClick={() => goToTab("chat")}
+              className={`rounded px-2 py-1 text-sm font-medium transition ${
+                activeTab === "chat"
+                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
+                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+              }`}
+            >
+              Chat
+            </button>
+            <div className="mx-2 h-4 w-px bg-[hsl(var(--border))]" />
+            {auth.user ? (
+              <button
+                type="button"
+                onClick={() => auth.signOut()}
+                className="rounded-full border border-[hsl(var(--border))] bg-white/70 px-3 py-1 text-xs font-semibold text-[hsl(var(--foreground))] shadow-sm hover:bg-white"
+                title={auth.user.username}
+              >
+                Sign out
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAuth(true)}
+                className="rounded-full bg-[hsl(var(--primary))] px-3 py-1 text-xs font-semibold text-[hsl(var(--primary-foreground))] shadow-sm hover:bg-[hsl(var(--primary-hover))]"
+              >
+                Sign in
+              </button>
+            )}
+          </nav>
         </div>
       </header>
 

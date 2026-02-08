@@ -2,9 +2,11 @@ import { defineBackend } from "@aws-amplify/backend";
 import { Duration } from "aws-cdk-lib";
 import { Queue } from "aws-cdk-lib/aws-sqs";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { auth } from "./auth/resource.js";
 import { beaverApi } from "./functions/beaver-api/resource.js";
 
 const backend = defineBackend({
+  auth,
   beaverApi,
 });
 
