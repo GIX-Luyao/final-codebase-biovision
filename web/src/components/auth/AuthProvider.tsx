@@ -36,22 +36,39 @@ let amplifyConfigured = false;
 
 async function ensureAmplifyConfigured() {
   if (amplifyConfigured) return;
-  const response = await fetch("/api/auth/config", { cache: "no-store" });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || "Failed to load auth config.");
+  const region = process.env.NEXT_PUBLIC_COGNITO_REGION || "";
+  const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || "";
+  const userPoolClientId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID || "";
+
+  if (!userPoolId || !userPoolClientId) {
+    // Fallback for local dev or environments that don't inline build-time env.
+    const response = await fetch("/api/auth/config", { cache: "no-store" });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Failed to load auth config.");
+    }
+    const cfg = (await response.json()) as {
+      region: string;
+      userPoolId: string;
+      userPoolClientId: string;
+    };
+    Amplify.configure({
+      Auth: {
+        Cognito: {
+          userPoolId: cfg.userPoolId,
+          userPoolClientId: cfg.userPoolClientId,
+        },
+      },
+    });
+    amplifyConfigured = true;
+    return;
   }
-  const cfg = (await response.json()) as {
-    region: string;
-    userPoolId: string;
-    userPoolClientId: string;
-  };
 
   Amplify.configure({
     Auth: {
       Cognito: {
-        userPoolId: cfg.userPoolId,
-        userPoolClientId: cfg.userPoolClientId,
+        userPoolId,
+        userPoolClientId,
       },
     },
   });
