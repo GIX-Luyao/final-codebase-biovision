@@ -38,6 +38,21 @@ function findAuthConfig(obj: unknown): AuthConfig | null {
     };
   }
 
+  // Amplify outputs v1.4 shape: { auth: { aws_region, user_pool_id, user_pool_client_id, ... } }
+  const v14 = anyObj?.auth;
+  if (
+    v14 &&
+    typeof v14.aws_region === "string" &&
+    typeof v14.user_pool_id === "string" &&
+    typeof v14.user_pool_client_id === "string"
+  ) {
+    return {
+      region: v14.aws_region,
+      userPoolId: v14.user_pool_id,
+      userPoolClientId: v14.user_pool_client_id,
+    };
+  }
+
   // Fallback: some environments may already flatten values.
   const alt = anyObj?.auth;
   if (
@@ -96,4 +111,3 @@ export async function GET() {
     { status: 500 },
   );
 }
-
