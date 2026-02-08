@@ -166,7 +166,12 @@ function imageNameFromPath(path: string) {
   if (!raw) return "";
   const noQuery = raw.split("?")[0] || raw;
   const parts = noQuery.split(/[/\\\\]/);
-  return parts[parts.length - 1] || noQuery;
+  const base = parts[parts.length - 1] || noQuery;
+  // Many uploads are stored as `uuid_originalname.ext`; strip the UUID prefix for display.
+  return base.replace(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_/i,
+    "",
+  );
 }
 
 function escapeCsv(value: unknown) {
