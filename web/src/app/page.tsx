@@ -109,11 +109,57 @@ type DetectionResult = {
   error: string;
 };
 
+type SequenceSummary = {
+  id: string;
+  groupKey: string;
+  startTs: string;
+  size: number;
+  presence: "present" | "possible" | "absent" | "unknown";
+  species: string;
+  speciesScore: number;
+  disagreement: boolean;
+  flagManualReview: boolean;
+  reason: string;
+};
+
 const REVIEW_LABELS = [
   { value: "beaver", label: "Beaver" },
   { value: "other_animal", label: "Other animal" },
   { value: "no_animal", label: "No animal" },
 ];
+
+function parseExifTimestampToMs(value: string) {
+  const text = (value || "").trim();
+  if (!text) return null;
+  const m = text.match(
+    /^(\d{4})[:\/-](\d{2})[:\/-](\d{2})[ T](\d{2}):(\d{2}):(\d{2})/,
+  );
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const hh = Number(m[4]);
+  const mm = Number(m[5]);
+  const ss = Number(m[6]);
+  if (![y, mo, d, hh, mm, ss].every(Number.isFinite)) return null;
+  return Date.UTC(y, mo - 1, d, hh, mm, ss);
+}
+
+function toNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const num = Number(text);
+  return Number.isFinite(num) ? num : null;
+}
+
+function slug(value: string, maxLen: number = 48) {
+  const cleaned = (value || "unknown")
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return (cleaned || "unknown").slice(0, maxLen);
+}
 
 function escapeCsv(value: unknown) {
   const text = String(value ?? "");
@@ -221,6 +267,7 @@ export default function Home() {
   const [csvName, setCsvName] = useState("");
   const [input, setInput] = useState("");
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [sequenceFilterId, setSequenceFilterId] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; role: "user" | "assistant"; text: string }>
   >([]);
@@ -326,6 +373,190 @@ export default function Home() {
   }, [results]);
 
   const resultsCsv = useMemo(() => buildCsv(results), [results]);
+
+  const sequenceData = useMemo(() => {
+    const gapSeconds = 6;
+    const lowConf = 0.6;
+    const highConf = 0.8;
+    const speciesMargin = 0.25;
+
+    const groupMap = new Map<string, DetectionResult[]>();
+    for (const row of results) {
+      const groupKey = row.overlay_location?.trim() || row.exif_location?.trim() || "unknown";
+      const list = groupMap.get(groupKey) ?? [];
+      list.push(row);
+      groupMap.set(groupKey, list);
+    }
+
+    const sequencesById = new Map<string, SequenceSummary>();
+    const rowIdToSequenceId = new Map<string, string>();
+
+    for (const [groupKey, rows] of groupMap.entries()) {
+      const sorted = [...rows].sort((a, b) => {
+        const ta = parseExifTimestampToMs(a.exif_timestamp);
+        const tb = parseExifTimestampToMs(b.exif_timestamp);
+        if (ta == null && tb == null) return a.image_path.localeCompare(b.image_path);
+        if (ta == null) return 1;
+        if (tb == null) return -1;
+        return ta - tb;
+      });
+
+      const sequences: DetectionResult[][] = [];
+      let current: DetectionResult[] = [];
+      let lastTs: number | null = null;
+
+      for (const r of sorted) {
+        const ts = parseExifTimestampToMs(r.exif_timestamp);
+        if (ts == null) {
+          if (current.length) sequences.push(current);
+          current = [];
+          lastTs = null;
+          sequences.push([r]);
+          continue;
+        }
+        if (lastTs == null) {
+          current = [r];
+          lastTs = ts;
+          continue;
+        }
+        if (ts - lastTs > gapSeconds * 1000) {
+          sequences.push(current);
+          current = [r];
+        } else {
+          current.push(r);
+        }
+        lastTs = ts;
+      }
+      if (current.length) sequences.push(current);
+
+      for (let i = 0; i < sequences.length; i++) {
+        const seq = sequences[i]!;
+        const seqIndex = i + 1;
+        const startTs = seq[0]?.exif_timestamp?.trim() || "";
+        const startMs = parseExifTimestampToMs(startTs);
+        const startId =
+          startMs == null
+            ? "no_ts"
+            : new Date(startMs)
+                .toISOString()
+                .slice(0, 19)
+                .replaceAll("-", "")
+                .replaceAll(":", "")
+                .replace("T", "_");
+        const seqId = `${slug(groupKey)}_${startId}_${seqIndex}`;
+
+        const reasons: string[] = [];
+        let flagManualReview = false;
+
+        const votes = seq.map((row) => {
+          if (row.has_beaver) {
+            return { hasAnimal: true, species: "Beaver", confidence: row.confidence ?? 0, negative: false };
+          }
+          const animalType = (row.animal_type || "").trim();
+          if (animalType) {
+            if (animalType === "No animal") {
+              return { hasAnimal: false, species: "none", confidence: 0, negative: true };
+            }
+            return {
+              hasAnimal: true,
+              species: animalType,
+              confidence: toNumber(row.animal_confidence) ?? 0,
+              negative: false,
+            };
+          }
+          if (row.has_animal === false) {
+            return { hasAnimal: false, species: "none", confidence: 0, negative: true };
+          }
+          return null;
+        });
+
+        const positives = votes
+          .filter((v): v is NonNullable<typeof v> => Boolean(v && v.hasAnimal))
+          .filter((v) => v.confidence >= lowConf);
+        const explicitNegative = votes.some((v) => v?.negative);
+
+        let presence: SequenceSummary["presence"] = "unknown";
+        if (positives.length >= 2) {
+          presence = "present";
+        } else if (positives.length === 1) {
+          if (positives[0]!.confidence >= highConf) {
+            presence = "present";
+          } else {
+            presence = "possible";
+            flagManualReview = true;
+            reasons.push("single_frame_medium_confidence");
+          }
+        } else {
+          if (explicitNegative) {
+            presence = "absent";
+          } else {
+            presence = "unknown";
+            flagManualReview = true;
+            reasons.push("missing_or_low_confidence");
+          }
+        }
+
+        const speciesScores = new Map<string, number>();
+        for (const v of positives) {
+          speciesScores.set(v.species, (speciesScores.get(v.species) ?? 0) + v.confidence);
+        }
+
+        let species = "unknown";
+        let speciesScore = 0;
+        if (speciesScores.size === 0) {
+          species = presence === "absent" ? "none" : "unknown";
+        } else {
+          const ranked = [...speciesScores.entries()].sort((a, b) => b[1] - a[1]);
+          const [bestSpecies, bestScore] = ranked[0]!;
+          const secondScore = ranked[1]?.[1] ?? 0;
+          species = bestSpecies;
+          speciesScore = bestScore;
+          if (ranked.length > 1 && bestScore - secondScore < speciesMargin) {
+            species = "unknown";
+            flagManualReview = true;
+            reasons.push("species_conflict");
+          }
+        }
+
+        const disagreement = new Set(positives.map((v) => v.species)).size > 1;
+        if (votes.some((v) => v == null)) {
+          flagManualReview = true;
+          reasons.push("missing_votes");
+        }
+        if (!startMs) {
+          flagManualReview = true;
+          reasons.push("missing_timestamp");
+        }
+
+        const summary: SequenceSummary = {
+          id: seqId,
+          groupKey,
+          startTs,
+          size: seq.length,
+          presence,
+          species,
+          speciesScore: Math.round(speciesScore * 10000) / 10000,
+          disagreement,
+          flagManualReview,
+          reason: reasons.join(","),
+        };
+
+        sequencesById.set(seqId, summary);
+        for (const row of seq) {
+          rowIdToSequenceId.set(row.id, seqId);
+        }
+      }
+    }
+
+    return { sequencesById, rowIdToSequenceId };
+  }, [results]);
+
+  const visibleResults = useMemo(() => {
+    if (!sequenceFilterId) return results;
+    return results.filter(
+      (row) => sequenceData.rowIdToSequenceId.get(row.id) === sequenceFilterId,
+    );
+  }, [results, sequenceData.rowIdToSequenceId, sequenceFilterId]);
 
   const mapClassifyResults = (items: Array<{
     filename: string;
@@ -1409,7 +1640,7 @@ export default function Home() {
                   Review Results
                 </h3>
                 <p className="text-xs uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
-                  {results.length} row(s)
+                  {visibleResults.length} row(s)
                 </p>
               </div>
 
@@ -1419,10 +1650,26 @@ export default function Home() {
                 </p>
               ) : (
                 <div className="mt-6 overflow-x-auto">
+                  {sequenceFilterId && (
+                    <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-[hsl(var(--soft-primary-border))] bg-[hsl(var(--soft-primary-bg))]/60 px-4 py-3 text-xs">
+                      <div className="font-semibold">
+                        Filtered by sequence{" "}
+                        <span className="font-mono">{sequenceFilterId}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSequenceFilterId("")}
+                        className="rounded-full bg-white/70 px-3 py-1 font-semibold text-[hsl(var(--foreground))] shadow-sm"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
                   <table className="min-w-full text-left text-xs">
                     <thead className="sticky top-0 bg-white">
                       <tr className="border-b border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
                         <th className="px-3 py-2 font-semibold">File</th>
+                        <th className="px-3 py-2 font-semibold">Sequence</th>
                         <th className="px-3 py-2 font-semibold">Predicted</th>
                         <th className="px-3 py-2 font-semibold">Review</th>
                         <th className="px-3 py-2 font-semibold">Confidence</th>
@@ -1432,12 +1679,18 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      {results.map((row) => {
+                      {visibleResults.map((row) => {
                         const isExpanded = expandedRows.includes(row.id);
+                        const seqId = sequenceData.rowIdToSequenceId.get(row.id) || "";
+                        const seq = seqId ? sequenceData.sequencesById.get(seqId) : undefined;
                         return (
                           <Fragment key={row.id}>
                             <tr
-                              className="border-b border-[hsl(var(--border))] bg-white"
+                              className={`border-b border-[hsl(var(--border))] bg-white ${
+                                sequenceFilterId && seqId === sequenceFilterId
+                                  ? "bg-[hsl(var(--soft-primary-bg))]/40"
+                                  : ""
+                              }`}
                             >
                               <td className="px-3 py-2">
                                 <div className="font-semibold">
@@ -1446,6 +1699,28 @@ export default function Home() {
                                 <div className="text-[10px] text-[hsl(var(--muted-foreground))]">
                                   {row.image_path}
                                 </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                {seq ? (
+                                  <div className="flex flex-col gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSequenceFilterId(seq.id)}
+                                      className="w-fit rounded-full border border-[hsl(var(--border))] bg-white/70 px-2 py-1 text-[10px] font-semibold text-[hsl(var(--foreground))] shadow-sm hover:bg-white"
+                                      title="Click to filter to this sequence"
+                                    >
+                                      {seq.size} shot(s) · {seq.presence}
+                                    </button>
+                                    <div className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                                      {seq.species}
+                                      {seq.flagManualReview ? " · review" : ""}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                                    —
+                                  </span>
+                                )}
                               </td>
                               <td className="px-3 py-2">
                                 <span className="rounded-full bg-[hsl(var(--primary))] px-2 py-1 text-[10px] text-[hsl(var(--primary-foreground))]">
@@ -1504,7 +1779,7 @@ export default function Home() {
                             </tr>
                             {isExpanded && (
                               <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
-                                <td colSpan={7} className="px-3 py-3">
+                                <td colSpan={8} className="px-3 py-3">
                                   <div className="grid gap-3 text-xs">
                                     <div>
                                       <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
