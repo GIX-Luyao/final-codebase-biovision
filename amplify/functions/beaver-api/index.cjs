@@ -31,7 +31,8 @@ if (!globalThis.crypto) {
 }
 
 const MAX_CLASSIFY = 5;
-const MAX_FILES = 1000;
+// Guardrail for a single batch job (S3 prefix). Higher values increase runtime/cost.
+const MAX_FILES = 2000;
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"]);
 
 const corsHeaders = {
