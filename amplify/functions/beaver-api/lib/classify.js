@@ -43,7 +43,7 @@ const CLASSIFY_PROMPT = [
   "You are a wildlife image classification assistant.",
   "",
   "Input:",
-  "- You may receive 1-2 images from the SAME camera captured within a short time window (a sequence).",
+  "- You may receive 1-5 images from the SAME camera captured within a short time window (a sequence).",
   "- Use ALL provided images to decide animal presence and species.",
   "- If an object looks like an animal in one frame but does NOT move/change across frames, it may be a log/rock/shadow; do NOT count it as an animal.",
   "- An animal may appear in ONLY ONE frame; still count it if there is reasonable evidence.",
@@ -77,7 +77,7 @@ const CLASSIFY_PROMPT = [
 const BEAVER_ONLY_PROMPT = [
   "You are a wildlife expert. Decide whether the image contains a beaver.",
   "IMPORTANT:",
-  "- You may receive 1-2 images from the SAME camera captured within a short time window (a sequence).",
+  "- You may receive 1-5 images from the SAME camera captured within a short time window (a sequence).",
   "- Use ALL provided images to decide.",
   "- If something looks like a beaver in one frame but does NOT move/change across frames, it may be a log/wood in water; do NOT call it beaver.",
   "- A beaver may appear in ONLY ONE frame; still count it if there is reasonable visual evidence.",

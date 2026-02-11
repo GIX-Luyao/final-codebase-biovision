@@ -386,13 +386,29 @@ async function processJob(params) {
     return Number.isFinite(ms) ? ms : null;
   }
 
-  function pickTwoShots(frames) {
-    if (frames.length <= 2) return frames;
+  function sampleUpToN(frames, max) {
+    const n = frames.length;
+    const k = Math.max(1, Math.min(Number(max || 5), 5));
+    if (n <= k) return frames;
+    if (k === 1) return [frames[0]];
+    const idx = [];
+    for (let i = 0; i < k; i++) {
+      const t = i / (k - 1);
+      idx.push(Math.round((n - 1) * t));
+    }
+    const unique = [...new Set(idx)].sort((a, b) => a - b);
+    return unique.map((i) => frames[i]);
+  }
+
+  function pickFramesForSequence(frames) {
+    if (frames.length <= 1) return frames;
+
     const msList = frames.map((f) => parseTsMs(f.exif_timestamp));
     if (msList.some((v) => v == null)) {
-      return [frames[0], frames[frames.length - 1]];
+      return sampleUpToN(frames, 5);
     }
 
+    // Find the longest burst run where adjacent frames are within burstGapSeconds.
     let bestStart = 0;
     let bestLen = 1;
     let runStart = 0;
@@ -412,10 +428,10 @@ async function processJob(params) {
       bestStart = runStart;
     }
 
-    if (bestLen >= 2) {
-      return [frames[bestStart], frames[bestStart + bestLen - 1]];
-    }
-    return [frames[0], frames[frames.length - 1]];
+    const burstFrames =
+      bestLen >= 2 ? frames.slice(bestStart, bestStart + bestLen) : [];
+    const source = burstFrames.length >= 2 ? burstFrames : frames;
+    return sampleUpToN(source, 5);
   }
 
   const results = [];
@@ -434,7 +450,7 @@ async function processJob(params) {
       : "no_ts";
     const seqId = `${jobId}_${startId}_${sequenceIndex}`;
 
-    const picked = pickTwoShots(current);
+    const picked = pickFramesForSequence(current);
     const allowOversizeNoSharp = current[0].allowOversizeNoSharp === true;
 
     let seqOutput;
