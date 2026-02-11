@@ -87,6 +87,9 @@ type DetectionResult = {
   image_path: string;
   filename: string;
   predicted_label: string;
+  beaver_agent_label: string;
+  animal_agent_label: string;
+  agent_conflict: boolean;
   review_label: string;
   was_corrected: boolean;
   confidence: number;
@@ -194,6 +197,9 @@ function buildCsv(rows: DetectionResult[]) {
     "image_path",
     "filename",
     "predicted_label",
+    "beaver_agent_label",
+    "animal_agent_label",
+    "agent_conflict",
     "review_label",
     "was_corrected",
     "confidence",
@@ -597,6 +603,7 @@ export default function Home() {
     overlay_reason?: string;
     overlay_temperature?: string;
     exif_timestamp?: string;
+    manual_review?: boolean;
   }>) => {
     const timestamp = Date.now();
     return items.map((result, index) => {
@@ -615,20 +622,27 @@ export default function Home() {
       });
 
       let commonName = post.Common_Name;
-      let manualReview = post.manual_review;
+      let manualReview = post.manual_review || Boolean(result.manual_review);
       let confidence = post.confidence;
       let group = animalGroup;
       let reason = animalNotes || "";
 
+      if (commonName === "No animal") {
+        group = "none";
+      }
+
+      const beaverAgentLabel = result.is_beaver ? "beaver" : "not_beaver";
+      const animalAgentLabel = commonName || "unknown";
+      const animalSaysBeaver = animalAgentLabel === "Beaver";
+      const agentConflict = Boolean(result.is_beaver) !== animalSaysBeaver;
+      if (agentConflict) {
+        manualReview = true;
+      }
+
       if (result.is_beaver) {
-        commonName = "Beaver";
-        manualReview = false;
-        group = "mammal";
         confidence =
           typeof beaverConfidence === "number" ? beaverConfidence : animalConfidence;
         reason = beaverReason || reason;
-      } else if (commonName === "No animal") {
-        group = "none";
       }
 
       const predictedLabel =
@@ -643,6 +657,9 @@ export default function Home() {
         image_path: result.filename || "",
         filename: imageNameFromPath(result.filename || ""),
         predicted_label: predictedLabel,
+        beaver_agent_label: beaverAgentLabel,
+        animal_agent_label: animalAgentLabel,
+        agent_conflict: agentConflict,
         review_label: predictedLabel,
         was_corrected: false,
         confidence,
@@ -1736,6 +1753,8 @@ export default function Home() {
                         <th className="px-3 py-2 font-semibold">File</th>
                         <th className="px-3 py-2 font-semibold">Sequence</th>
                         <th className="px-3 py-2 font-semibold">Predicted</th>
+                        <th className="px-3 py-2 font-semibold">Beaver Agent</th>
+                        <th className="px-3 py-2 font-semibold">Animal Agent</th>
                         <th className="px-3 py-2 font-semibold">Review</th>
                         <th className="px-3 py-2 font-semibold">Confidence</th>
                         <th className="px-3 py-2 font-semibold">Common_Name</th>
@@ -1796,6 +1815,16 @@ export default function Home() {
                                 </span>
                               </td>
                               <td className="px-3 py-2">
+                                <span className="rounded-full border border-[hsl(var(--border))] bg-white px-2 py-1 text-[10px]">
+                                  {row.beaver_agent_label}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="rounded-full border border-[hsl(var(--border))] bg-white px-2 py-1 text-[10px]">
+                                  {row.animal_agent_label}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2">
                                 <select
                                   value={row.review_label}
                                   onChange={(event) =>
@@ -1823,6 +1852,11 @@ export default function Home() {
                                       review
                                     </span>
                                   )}
+                                  {row.agent_conflict && (
+                                    <span className="rounded-full bg-[#f5d7c4] px-2 py-1 text-[#6e3a1d]">
+                                      conflict
+                                    </span>
+                                  )}
                                   {row.error && (
                                     <span className="rounded-full bg-[#f5c0b6] px-2 py-1 text-[#6d2f24]">
                                       error
@@ -1847,7 +1881,7 @@ export default function Home() {
                             </tr>
                             {isExpanded && (
                               <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
-                                <td colSpan={8} className="px-3 py-3">
+                                <td colSpan={10} className="px-3 py-3">
                                   <div className="grid gap-3 text-xs">
                                     <div>
                                       <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
