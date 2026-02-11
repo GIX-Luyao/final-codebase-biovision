@@ -80,12 +80,16 @@ const BEAVER_ONLY_PROMPT = [
   "- You may receive 1-5 images from the SAME camera captured within a short time window (a sequence).",
   "- Use ALL provided images to decide.",
   "- If something looks like a beaver in one frame but does NOT move/change across frames, it may be a log/wood in water; do NOT call it beaver.",
-  "- A beaver may appear in ONLY ONE frame; still count it if there is reasonable visual evidence.",
-  "- Many beavers are partially occluded, far away, or only show tails, silhouettes, or water disturbance.",
-  "- If there is ANY reasonable visual evidence of a beaver, classify as beaver.",
+  "- A beaver may appear in ONLY ONE frame.",
+  "- High precision mode: avoid false positives.",
+  "- Set is_beaver=true ONLY when there are at least 2 beaver-specific positive cues.",
+  "- Beaver-positive cues include: broad flat paddle tail, large rounded body profile in water, beaver-like head/snout/ear shape, obvious beaver motion across sequence, fresh gnaw/dam/lodge behavior with visible beaver body.",
+  "- Hard negatives for raccoon: ringed tail, facial mask, pointed snout, small upright ears, climbing posture.",
+  '- If raccoon cues appear, classify as NOT beaver unless there is clear flat paddle tail evidence.',
+  "- If uncertain between beaver vs raccoon/otter/nutria, set is_beaver=false and explain uncertainty.",
   "",
   "Return STRICT JSON only:",
-  '{"is_beaver": true/false, "confidence": 0-1, "reason": "short"}',
+  '{"is_beaver": true/false, "confidence": 0-1, "reason": "short", "beaver_positive_cues": [], "beaver_negative_cues": [], "ambiguous_with": []}',
   "Output MUST start with { and end with } and contain nothing else.",
 ].join("\n");
 
@@ -123,7 +127,121 @@ function normalizeBeaverOnlyOutput(raw) {
   const confidence =
     typeof obj.confidence === "number" ? clamp(obj.confidence, 0, 1) : 0;
   const reason = typeof obj.reason === "string" ? obj.reason : "";
-  return { is_beaver: isBeaver, confidence, reason };
+  const beaver_positive_cues = Array.isArray(obj.beaver_positive_cues)
+    ? obj.beaver_positive_cues
+        .filter((v) => typeof v === "string")
+        .map((v) => v.trim())
+        .filter(Boolean)
+    : [];
+  const beaver_negative_cues = Array.isArray(obj.beaver_negative_cues)
+    ? obj.beaver_negative_cues
+        .filter((v) => typeof v === "string")
+        .map((v) => v.trim())
+        .filter(Boolean)
+    : [];
+  const ambiguous_with = Array.isArray(obj.ambiguous_with)
+    ? obj.ambiguous_with
+        .filter((v) => typeof v === "string")
+        .map((v) => v.trim())
+        .filter(Boolean)
+    : [];
+  return {
+    is_beaver: isBeaver,
+    confidence,
+    reason,
+    beaver_positive_cues,
+    beaver_negative_cues,
+    ambiguous_with,
+  };
+}
+
+const AMBIGUOUS_SPECIES_VETO = new Set(["raccoon", "otter", "river otter", "nutria"]);
+const CROSS_AGENT_VETO_CONFIDENCE = 0.93;
+
+function containsAnyPattern(text, patterns) {
+  const normalized = String(text || "").toLowerCase();
+  return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+function hasRaccoonLikeEvidence(beaverParsed, animalParsed) {
+  const negatives = Array.isArray(beaverParsed?.beaver_negative_cues)
+    ? beaverParsed.beaver_negative_cues
+    : [];
+  const negativeText = negatives.join(" ").toLowerCase();
+  const noteText = String(animalParsed?.notes || "").toLowerCase();
+  const patterns = [
+    "raccoon",
+    "ringed tail",
+    "facial mask",
+    "pointed snout",
+    "small upright ears",
+    "upright ears",
+    "climbing posture",
+    "climbing",
+  ];
+  return containsAnyPattern(negativeText, patterns) || containsAnyPattern(noteText, patterns);
+}
+
+function applyBeaverPrecisionPolicy(beaverParsed, animalParsed) {
+  let next = { ...beaverParsed };
+  let manualReview = false;
+  const policyFlags = [];
+  const positiveCueCount = Array.isArray(next.beaver_positive_cues)
+    ? next.beaver_positive_cues.length
+    : 0;
+  const ambiguous = new Set(
+    (Array.isArray(next.ambiguous_with) ? next.ambiguous_with : []).map((s) =>
+      String(s).toLowerCase(),
+    ),
+  );
+  const raccoonLikeEvidence = hasRaccoonLikeEvidence(next, animalParsed);
+  const animalName = String(animalParsed?.common_name || "").toLowerCase();
+  const animalSaysRaccoon =
+    animalName === "raccoon" ||
+    (animalName === "other mammal" && raccoonLikeEvidence);
+
+  if (next.is_beaver && positiveCueCount < 2) {
+    next.is_beaver = false;
+    manualReview = true;
+    policyFlags.push("needs_at_least_two_beaver_cues");
+  }
+
+  if (
+    next.is_beaver &&
+    [...AMBIGUOUS_SPECIES_VETO].some((name) => ambiguous.has(name)) &&
+    next.confidence < CROSS_AGENT_VETO_CONFIDENCE
+  ) {
+    next.is_beaver = false;
+    manualReview = true;
+    policyFlags.push("ambiguous_with_raccoon_otter_or_nutria");
+  }
+
+  if (
+    next.is_beaver &&
+    raccoonLikeEvidence &&
+    next.confidence < CROSS_AGENT_VETO_CONFIDENCE
+  ) {
+    next.is_beaver = false;
+    manualReview = true;
+    policyFlags.push("raccoon_like_negative_cues_present");
+  }
+
+  if (
+    next.is_beaver &&
+    animalSaysRaccoon &&
+    next.confidence < CROSS_AGENT_VETO_CONFIDENCE
+  ) {
+    next.is_beaver = false;
+    manualReview = true;
+    policyFlags.push("cross_agent_veto_from_animal_agent");
+  }
+
+  if (policyFlags.length > 0) {
+    const suffix = `policy=${policyFlags.join("+")}`;
+    next.reason = next.reason ? `${next.reason} | ${suffix}` : suffix;
+  }
+
+  return { beaver: next, manual_review: manualReview };
 }
 
 function buildOverlayPrompt(allowedCodes, allowAny) {
@@ -267,14 +385,20 @@ async function classifySequenceBuffers(modelId, imageBytesList, options = {}) {
     animalParsed = { ...animalParsed, common_name: "unknown", group: "unknown" };
   }
 
+  const policy = applyBeaverPrecisionPolicy(beaverParsed, animalParsed);
+  const beaverFinal = policy.beaver;
+
   let merged = {
     ...animalParsed,
-    is_beaver: beaverParsed.is_beaver,
-    has_beaver: beaverParsed.is_beaver,
-    beaver_confidence: beaverParsed.confidence,
-    beaver_reason: beaverParsed.reason,
-    reason: beaverParsed.reason,
-    confidence: beaverParsed.confidence,
+    is_beaver: beaverFinal.is_beaver,
+    has_beaver: beaverFinal.is_beaver,
+    beaver_confidence: beaverFinal.confidence,
+    beaver_reason: beaverFinal.reason,
+    beaver_positive_cues: beaverFinal.beaver_positive_cues,
+    beaver_negative_cues: beaverFinal.beaver_negative_cues,
+    ambiguous_with: beaverFinal.ambiguous_with,
+    reason: beaverFinal.reason,
+    confidence: beaverFinal.confidence,
     has_animal:
       animalParsed.common_name !== "No animal" && animalParsed.group !== "none",
     animal_type: animalParsed.common_name,
@@ -283,6 +407,7 @@ async function classifySequenceBuffers(modelId, imageBytesList, options = {}) {
     animal_group: animalParsed.group,
     animal_reason: animalParsed.notes,
     animal_notes: animalParsed.notes,
+    manual_review: policy.manual_review,
     sequence_images_used: selected.length,
   };
 
@@ -470,14 +595,21 @@ async function classifyImageBuffer(modelId, imageBytes, options = {}) {
 
   // Convenience fields: keep the original shape for the UI, plus explicit
   // per-agent fields for CSV export + sequence aggregation.
+  const policy = applyBeaverPrecisionPolicy(beaverParsed, animalParsed);
+  const beaverFinal = policy.beaver;
+
   let merged = {
     ...animalParsed,
-    is_beaver: beaverParsed.is_beaver,
-    has_beaver: beaverParsed.is_beaver,
-    beaver_confidence: beaverParsed.confidence,
-    beaver_reason: beaverParsed.reason,
+    is_beaver: beaverFinal.is_beaver,
+    has_beaver: beaverFinal.is_beaver,
+    beaver_confidence: beaverFinal.confidence,
+    beaver_reason: beaverFinal.reason,
+    beaver_positive_cues: beaverFinal.beaver_positive_cues,
+    beaver_negative_cues: beaverFinal.beaver_negative_cues,
+    ambiguous_with: beaverFinal.ambiguous_with,
     // CSV-friendly columns (Prompt1/Prompt2 style).
-    reason: beaverParsed.reason,
+    reason: beaverFinal.reason,
+    confidence: beaverFinal.confidence,
     has_animal:
       animalParsed.common_name !== "No animal" && animalParsed.group !== "none",
     animal_type: animalParsed.common_name,
@@ -486,6 +618,7 @@ async function classifyImageBuffer(modelId, imageBytes, options = {}) {
     animal_group: animalParsed.group,
     animal_reason: animalParsed.notes,
     animal_notes: animalParsed.notes,
+    manual_review: policy.manual_review,
   };
 
   if (overlayResult?.text) {
