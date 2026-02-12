@@ -402,7 +402,7 @@ export default function Home() {
   const resultsCsv = useMemo(() => buildCsv(results), [results]);
 
   const sequenceData = useMemo(() => {
-    const gapSeconds = 6;
+    const gapSeconds = 30;
     const lowConf = 0.6;
     const highConf = 0.8;
     const speciesMargin = 0.25;
@@ -611,8 +611,6 @@ export default function Home() {
       const animalConfidence = result.animal_confidence ?? result.confidence;
       const animalGroup = result.animal_group ?? result.group;
       const animalNotes = result.animal_notes ?? result.notes;
-      const beaverConfidence = result.beaver_confidence;
-      const beaverReason = result.beaver_reason;
 
       const post = postProcessAnimalOutput({
         common_name: animalCommonName,
@@ -631,26 +629,22 @@ export default function Home() {
         group = "none";
       }
 
-      const beaverAgentLabel = result.is_beaver ? "beaver" : "not_beaver";
-      const animalAgentLabel = commonName || "unknown";
-      const animalSaysBeaver = animalAgentLabel === "Beaver";
+      const beaverAgentLabel = result.is_beaver ? "beaver" : "other_animal";
+      const animalAgentLabel =
+        commonName && commonName !== "No animal" ? "animal" : "no_animal";
+      const animalSaysBeaver = commonName === "Beaver";
       const agentConflict = Boolean(result.is_beaver) !== animalSaysBeaver;
       if (agentConflict) {
         manualReview = true;
       }
 
-      if (result.is_beaver) {
-        confidence =
-          typeof beaverConfidence === "number" ? beaverConfidence : animalConfidence;
-        reason = beaverReason || reason;
-      }
-
       const predictedLabel =
-        result.is_beaver
-          ? "beaver"
-          : commonName && commonName !== "No animal" && commonName !== "unknown"
-            ? "other_animal"
-            : "no_animal";
+        commonName && commonName !== "No animal" && commonName !== "unknown"
+          ? "other_animal"
+          : "no_animal";
+      const isNoAnimal = animalAgentLabel === "no_animal";
+      const displayCommonName = isNoAnimal ? "NA" : commonName || "unknown";
+      const normalizedAnimalType = isNoAnimal ? "No animal" : commonName || "unknown";
 
       return {
         id: `classify_${timestamp}_${index}`,
@@ -667,10 +661,10 @@ export default function Home() {
         notes: post.notes || "",
         model_id: "",
         has_beaver: result.is_beaver,
-        has_animal: commonName !== "No animal",
-        Common_Name: commonName,
+        has_animal: !isNoAnimal,
+        Common_Name: displayCommonName,
         manual_review: manualReview,
-        animal_type: commonName,
+        animal_type: normalizedAnimalType,
         animal_group: group,
         animal_confidence: animalConfidence,
         animal_reason: animalNotes || "",
