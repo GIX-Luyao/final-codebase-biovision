@@ -111,6 +111,8 @@ type DetectionResult = {
   overlay_temperature: string;
   exif_timestamp: string;
   exif_location: string;
+  s3_key?: string;
+  s3_bucket?: string;
   error: string;
 };
 
@@ -294,6 +296,9 @@ export default function Home() {
   const [csvName, setCsvName] = useState("");
   const [input, setInput] = useState("");
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [rowImageUrls, setRowImageUrls] = useState<Record<string, string>>({});
+  const [rowImageLoading, setRowImageLoading] = useState<Record<string, boolean>>({});
+  const [rowImageErrors, setRowImageErrors] = useState<Record<string, string>>({});
   const [sequenceFilterId, setSequenceFilterId] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; role: "user" | "assistant"; text: string }>
@@ -604,6 +609,8 @@ export default function Home() {
     overlay_temperature?: string;
     exif_timestamp?: string;
     manual_review?: boolean;
+    s3_key?: string;
+    s3_bucket?: string;
   }>) => {
     const timestamp = Date.now();
     return items.map((result, index) => {
@@ -675,6 +682,8 @@ export default function Home() {
         overlay_temperature: result.overlay_temperature || "",
         exif_timestamp: result.exif_timestamp || "",
         exif_location: "",
+        s3_key: result.s3_key || "",
+        s3_bucket: result.s3_bucket || "",
         error: "",
       };
     });
@@ -910,10 +919,47 @@ export default function Home() {
 
   const isTyping = chatStatus === "loading";
 
-  const toggleRow = (id: string) => {
-    setExpandedRows((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
-    );
+  const loadRowImage = async (row: DetectionResult) => {
+    if (rowImageUrls[row.id] || rowImageLoading[row.id]) return;
+    if (!row.s3_bucket || !row.s3_key) {
+      setRowImageErrors((prev) => ({ ...prev, [row.id]: "Image preview unavailable." }));
+      return;
+    }
+
+    setRowImageLoading((prev) => ({ ...prev, [row.id]: true }));
+    setRowImageErrors((prev) => ({ ...prev, [row.id]: "" }));
+    try {
+      const base = resolveBeaverApiBase().value;
+      const url = new URL("/api/image-url", base);
+      url.searchParams.set("bucket", row.s3_bucket);
+      url.searchParams.set("key", row.s3_key);
+      url.searchParams.set("expires_in", "600");
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error(await readErrorFromResponse(response));
+      }
+      const payload = await response.json().catch(() => ({}));
+      if (!payload.image_url) {
+        throw new Error("No image URL returned.");
+      }
+      setRowImageUrls((prev) => ({ ...prev, [row.id]: payload.image_url }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load image.";
+      setRowImageErrors((prev) => ({ ...prev, [row.id]: message }));
+    } finally {
+      setRowImageLoading((prev) => ({ ...prev, [row.id]: false }));
+    }
+  };
+
+  const toggleRow = (row: DetectionResult) => {
+    const id = row.id;
+    setExpandedRows((prev) => {
+      if (prev.includes(id)) return prev.filter((item) => item !== id);
+      return [...prev, id];
+    });
+    if (!expandedRows.includes(id)) {
+      void loadRowImage(row);
+    }
   };
 
   const goToTab = (tab: "home" | "dashboard" | "chat") => {
@@ -1866,7 +1912,7 @@ export default function Home() {
                               <td className="px-3 py-2">
                                 <button
                                   type="button"
-                                  onClick={() => toggleRow(row.id)}
+                                  onClick={() => toggleRow(row)}
                                   className="text-xs font-semibold text-[hsl(var(--accent))]"
                                 >
                                   {isExpanded ? "Hide" : "Show"}
@@ -1877,6 +1923,26 @@ export default function Home() {
                               <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
                                 <td colSpan={10} className="px-3 py-3">
                                   <div className="grid gap-3 text-xs">
+                                    <div>
+                                      <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+                                        Image preview
+                                      </p>
+                                      {rowImageUrls[row.id] ? (
+                                        <img
+                                          src={rowImageUrls[row.id]}
+                                          alt={row.filename || "preview"}
+                                          className="mt-1 max-h-72 rounded-xl border border-[hsl(var(--border))] bg-white object-contain"
+                                        />
+                                      ) : rowImageLoading[row.id] ? (
+                                        <p className="mt-1 text-[hsl(var(--muted-foreground))]">
+                                          Loading image...
+                                        </p>
+                                      ) : (
+                                        <p className="mt-1 text-[hsl(var(--muted-foreground))]">
+                                          {rowImageErrors[row.id] || "Image preview unavailable."}
+                                        </p>
+                                      )}
+                                    </div>
                                     <div>
                                       <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
                                         Reviewer notes

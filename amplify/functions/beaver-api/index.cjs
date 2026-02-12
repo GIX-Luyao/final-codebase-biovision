@@ -1054,6 +1054,37 @@ async function handleUploadUrl(event) {
   });
 }
 
+async function handleImageUrl(event) {
+  const query = event?.queryStringParameters || {};
+  const bucket = String(query.bucket || "").trim();
+  const rawKey = String(query.key || "").trim();
+  const key = rawKey ? decodeURIComponent(rawKey) : "";
+  if (!bucket || !key) {
+    return jsonResponse(400, { error: "Missing bucket or key." });
+  }
+
+  const region = requireEnv("AWS_REGION");
+  const s3Region = await resolveS3Region(bucket, region);
+  const client = new S3Client({ region: s3Region });
+  const expiresInRaw = Number(query.expires_in || query.expiresIn || 300);
+  const expiresIn = Math.max(60, Math.min(expiresInRaw, 3600));
+  const signedUrl = await getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }),
+    { expiresIn },
+  );
+
+  return jsonResponse(200, {
+    image_url: signedUrl,
+    bucket,
+    key,
+    expires_in: expiresIn,
+  });
+}
+
 async function handleJobStatus(jobId) {
   const job = await getJob(jobId);
   if (!job) {
@@ -1267,6 +1298,9 @@ exports.handler = async (event) => {
     }
     if (method === "POST" && normalizedPath === "/api/upload-url") {
       return await handleUploadUrl(event);
+    }
+    if (method === "GET" && normalizedPath === "/api/image-url") {
+      return await handleImageUrl(event);
     }
     if (method === "GET" && normalizedPath.startsWith("/api/jobs/")) {
       const parts = normalizedPath.split("/").filter(Boolean);
