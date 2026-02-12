@@ -604,6 +604,7 @@ export default function Home() {
   const mapClassifyResults = (items: Array<{
     filename: string;
     is_beaver: boolean;
+    has_animal?: boolean;
     confidence: number;
     common_name: string;
     group: string;
@@ -643,24 +644,35 @@ export default function Home() {
       let group = animalGroup;
       let reason = animalNotes || "";
 
-      if (commonName === "No animal") {
+      const animalPresence =
+        typeof result.has_animal === "boolean"
+          ? result.has_animal
+          : Boolean(animalCommonName && animalCommonName !== "No animal");
+
+      if (!animalPresence) {
+        commonName = "No animal";
         group = "none";
+      } else if (commonName === "No animal") {
+        // Guardrail: if backend says animal present, do not turn it into "No animal".
+        commonName = "unknown";
       }
 
       const beaverAgentLabel = result.is_beaver ? "beaver" : "other_animal";
-      const animalAgentLabel =
-        commonName && commonName !== "No animal" ? "animal" : "no_animal";
+      const animalAgentLabel = animalPresence ? "animal" : "no_animal";
       const animalSaysBeaver = commonName === "Beaver";
       const agentConflict = Boolean(result.is_beaver) !== animalSaysBeaver;
       if (agentConflict) {
         manualReview = true;
       }
 
-      const predictedLabel =
-        commonName && commonName !== "No animal" && commonName !== "unknown"
+      // Keep a stable "default review label" for the dropdown, but we no longer
+      // display a separate Predicted column.
+      const predictedLabel = result.is_beaver
+        ? "beaver"
+        : animalPresence
           ? "other_animal"
           : "no_animal";
-      const isNoAnimal = animalAgentLabel === "no_animal";
+      const isNoAnimal = !animalPresence;
       const displayCommonName = isNoAnimal ? "NA" : commonName || "unknown";
       const normalizedAnimalType = isNoAnimal ? "No animal" : commonName || "unknown";
 
@@ -679,7 +691,7 @@ export default function Home() {
         notes: post.notes || "",
         model_id: "",
         has_beaver: result.is_beaver,
-        has_animal: !isNoAnimal,
+        has_animal: animalPresence,
         Common_Name: displayCommonName,
         manual_review: manualReview,
         animal_type: normalizedAnimalType,
@@ -1805,7 +1817,6 @@ export default function Home() {
                       <tr className="border-b border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
                         <th className="px-3 py-2 font-semibold">File</th>
                         <th className="px-3 py-2 font-semibold">Sequence</th>
-                        <th className="px-3 py-2 font-semibold">Predicted</th>
                         <th className="px-3 py-2 font-semibold">Beaver Agent</th>
                         <th className="px-3 py-2 font-semibold">Animal Agent</th>
                         <th className="px-3 py-2 font-semibold">Review</th>
@@ -1861,11 +1872,6 @@ export default function Home() {
                                     —
                                   </span>
                                 )}
-                              </td>
-                              <td className="px-3 py-2">
-                                <span className="rounded-full bg-[hsl(var(--primary))] px-2 py-1 text-[10px] text-[hsl(var(--primary-foreground))]">
-                                  {row.predicted_label}
-                                </span>
                               </td>
                               <td className="px-3 py-2">
                                 <span className="rounded-full border border-[hsl(var(--border))] bg-white px-2 py-1 text-[10px]">
@@ -1934,7 +1940,7 @@ export default function Home() {
                             </tr>
                             {isExpanded && (
                               <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
-                                <td colSpan={10} className="px-3 py-3">
+                                <td colSpan={9} className="px-3 py-3">
                                   <div className="grid gap-3 text-xs">
                                     <div>
                                       <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
