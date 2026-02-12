@@ -1812,18 +1812,17 @@ export default function Home() {
                       </button>
                     </div>
                   )}
-                  <table className="min-w-full text-left text-xs">
+                  <table className="w-full table-fixed text-left text-xs">
                     <thead className="sticky top-0 bg-white">
                       <tr className="border-b border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
-                        <th className="px-3 py-2 font-semibold">File</th>
-                        <th className="px-3 py-2 font-semibold">Sequence</th>
-                        <th className="px-3 py-2 font-semibold">Beaver Agent</th>
-                        <th className="px-3 py-2 font-semibold">Animal Agent</th>
-                        <th className="px-3 py-2 font-semibold">Review</th>
-                        <th className="px-3 py-2 font-semibold">Confidence</th>
-                        <th className="px-3 py-2 font-semibold">Common_Name</th>
-                        <th className="px-3 py-2 font-semibold">Flags</th>
-                        <th className="px-3 py-2 font-semibold">Details</th>
+                        <th className="w-[40%] px-3 py-2 font-semibold">File</th>
+                        <th className="w-[11%] px-2 py-2 font-semibold">Sequence</th>
+                        <th className="w-[9%] px-2 py-2 font-semibold">Beaver Agent</th>
+                        <th className="w-[8%] px-2 py-2 font-semibold">Animal Agent</th>
+                        <th className="w-[13%] px-2 py-2 font-semibold">Review</th>
+                        <th className="w-[8%] px-2 py-2 font-semibold">Confidence</th>
+                        <th className="w-[8%] px-2 py-2 font-semibold">Common_Name</th>
+                        <th className="w-[3%] px-2 py-2 font-semibold">Details</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1841,17 +1840,25 @@ export default function Home() {
                               }`}
                             >
                               <td className="px-3 py-2">
-                                <div className="font-semibold">
-                                  {row.filename || imageNameFromPath(row.image_path) || "image"}
+                                <div className="flex items-center gap-2">
+                                  {(row.manual_review || row.agent_conflict || row.error) && (
+                                    <span
+                                      className="inline-block h-2 w-2 shrink-0 rounded-full bg-red-500"
+                                      title="Flagged for review"
+                                    />
+                                  )}
+                                  <div className="min-w-0 truncate font-semibold">
+                                    {row.filename || imageNameFromPath(row.image_path) || "image"}
+                                  </div>
                                 </div>
                                 <div
-                                  className="max-w-[360px] truncate text-[10px] text-[hsl(var(--muted-foreground))]"
+                                  className="max-w-[520px] truncate text-[10px] text-[hsl(var(--muted-foreground))]"
                                   title={row.image_path}
                                 >
                                   {row.image_path}
                                 </div>
                               </td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-2">
                                 {seq ? (
                                   <div className="flex flex-col gap-1">
                                     <button
@@ -1873,23 +1880,23 @@ export default function Home() {
                                   </span>
                                 )}
                               </td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-2">
                                 <span className="rounded-full border border-[hsl(var(--border))] bg-white px-2 py-1 text-[10px]">
                                   {row.beaver_agent_label}
                                 </span>
                               </td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-2">
                                 <span className="rounded-full border border-[hsl(var(--border))] bg-white px-2 py-1 text-[10px]">
                                   {row.animal_agent_label}
                                 </span>
                               </td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-2">
                                 <select
                                   value={row.review_label}
                                   onChange={(event) =>
                                     handleUpdateReview(row.id, event.target.value)
                                   }
-                                  className="rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
+                                  className="w-full max-w-[140px] rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
                                 >
                                   {REVIEW_LABELS.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -1898,37 +1905,13 @@ export default function Home() {
                                   ))}
                                 </select>
                               </td>
-                              <td className="px-3 py-2 font-semibold">
+                              <td className="px-2 py-2 font-semibold">
                                 {row.confidence || 0}
                               </td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-2">
                                 {row.Common_Name || "unknown"}
                               </td>
-                              <td className="px-3 py-2">
-                                <div className="flex flex-wrap gap-1 text-[10px]">
-                                  {row.manual_review && (
-                                    <span className="rounded-full bg-[#f6d686] px-2 py-1 text-[#5d4a1f]">
-                                      review
-                                    </span>
-                                  )}
-                                  {row.agent_conflict && (
-                                    <span className="rounded-full bg-[#f5d7c4] px-2 py-1 text-[#6e3a1d]">
-                                      conflict
-                                    </span>
-                                  )}
-                                  {row.error && (
-                                    <span className="rounded-full bg-[#f5c0b6] px-2 py-1 text-[#6d2f24]">
-                                      error
-                                    </span>
-                                  )}
-                                  {row.was_corrected && (
-                                    <span className="rounded-full bg-[#cbe6d6] px-2 py-1 text-[#1f5a3d]">
-                                      corrected
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-2">
                                 <button
                                   type="button"
                                   onClick={() => toggleRow(row)}
@@ -1940,7 +1923,7 @@ export default function Home() {
                             </tr>
                             {isExpanded && (
                               <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
-                                <td colSpan={9} className="px-3 py-3">
+                                <td colSpan={8} className="px-3 py-3">
                                   <div className="grid gap-3 text-xs">
                                     <div>
                                       <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
