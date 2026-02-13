@@ -1953,14 +1953,14 @@ export default function Home() {
                   <table className="w-full table-fixed text-left text-xs">
                     <thead className="sticky top-0 bg-white">
                       <tr className="border-b border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
-                        <th className="w-[40%] px-3 py-2 font-semibold">File</th>
-                        <th className="w-[11%] px-2 py-2 font-semibold">Sequence</th>
-                        <th className="w-[9%] px-2 py-2 font-semibold">Beaver Agent</th>
-                        <th className="w-[8%] px-2 py-2 font-semibold">Animal Agent</th>
-                        <th className="w-[13%] px-2 py-2 font-semibold">Review</th>
-                        <th className="w-[8%] px-2 py-2 font-semibold">Confidence</th>
-                        <th className="w-[8%] px-2 py-2 font-semibold">Common_Name</th>
-                        <th className="w-[3%] px-2 py-2 font-semibold">Details</th>
+                        <th className="w-[35%] px-3 py-2 font-semibold">File</th>
+                        <th className="w-[12%] px-2 py-2 font-semibold">Sequence</th>
+                        <th className="w-[10%] px-2 py-2 font-semibold">Beaver Agent</th>
+                        <th className="w-[10%] px-2 py-2 font-semibold">Animal Agent</th>
+                        <th className="w-[12%] px-2 py-2 font-semibold">Review</th>
+                        <th className="w-[7%] px-2 py-2 font-semibold">Confidence</th>
+                        <th className="w-[10%] px-2 py-2 font-semibold">Common_Name</th>
+                        <th className="w-[4%] px-2 py-2 font-semibold">Details</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2029,7 +2029,7 @@ export default function Home() {
                                   onChange={(event) =>
                                     handleUpdateAnimalAgent(row.id, event.target.value)
                                   }
-                                  className="w-full min-w-[96px] rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
+                                  className="w-full rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
                                 >
                                   {ANIMAL_AGENT_OPTIONS.map((option) => (
                                     <option key={option} value={option}>
@@ -2044,7 +2044,7 @@ export default function Home() {
                                   onChange={(event) =>
                                     handleUpdateReview(row.id, event.target.value)
                                   }
-                                  className="w-full max-w-[140px] rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
+                                  className="w-full rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
                                 >
                                   {REVIEW_LABELS.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -2062,7 +2062,7 @@ export default function Home() {
                                   onChange={(event) =>
                                     handleUpdateSpecies(row.id, event.target.value)
                                   }
-                                  className="w-full min-w-[130px] rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
+                                  className="w-full rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
                                 >
                                   {ANIMAL_SPECIES_OPTIONS.map((species) => (
                                     <option key={species} value={species}>
