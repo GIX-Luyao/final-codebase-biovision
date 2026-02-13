@@ -141,7 +141,22 @@ async function getJob(id) {
   return result.rows[0] || null;
 }
 
+async function claimJobFinalization(id) {
+  const db = await requireDb();
+  const result = await db.query(
+    `
+    UPDATE beaver_jobs
+    SET status = 'finalizing', updated_at = now()
+    WHERE id = $1 AND status = 'running'
+    RETURNING *;
+  `,
+    [id],
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
+  claimJobFinalization,
   createJob,
   getJob,
   updateJob,

@@ -21,7 +21,12 @@ const {
   extractExifTimestamp,
   getSharpAvailability,
 } = require("./lib/classify");
-const { createJob, updateJob, getJob } = require("./lib/jobsDb");
+const {
+  claimJobFinalization,
+  createJob,
+  updateJob,
+  getJob,
+} = require("./lib/jobsDb");
 
 const bedrock = createAmazonBedrock({
   region:
@@ -248,6 +253,26 @@ async function listS3Images(client, bucket, prefix) {
   return keys;
 }
 
+async function listS3KeysByPrefix(client, bucket, prefix) {
+  const keys = [];
+  let token;
+  do {
+    const response = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }),
+    );
+    const contents = response.Contents || [];
+    for (const item of contents) {
+      if (item.Key) keys.push(item.Key);
+    }
+    token = response.IsTruncated ? response.NextContinuationToken : undefined;
+  } while (token);
+  return keys;
+}
+
 async function runWithConcurrency(tasks, limit, onComplete) {
   const results = [];
   let index = 0;
@@ -382,7 +407,6 @@ async function processJob(params) {
     chunkIndex = 0,
     chunkSize = 0,
     totalImages: totalImagesFromPayload = 0,
-    progressBase = 0,
   } = params;
   const jobClient = new S3Client({ region });
   const inputClient = new S3Client({ region: s3Region });
@@ -477,11 +501,7 @@ async function processJob(params) {
   const isChunked = Boolean(manifestKey);
 
   async function maybeUpdateProgress() {
-    if (isChunked) {
-      const absolute = Math.min(totalJobImages, Number(progressBase || 0) + completed);
-      await updateJob(jobId, { status: "running", completed_images: absolute });
-      return;
-    }
+    if (isChunked) return;
     await updateJob(jobId, { completed_images: completed });
   }
 
@@ -584,6 +604,7 @@ async function processJob(params) {
 
       const key = `jobs/${jobId}/input/${file.filename}`;
       s3Key = key;
+      s3Bucket = bucket;
       await jobClient.send(
         new PutObjectCommand({
           Bucket: bucket,
@@ -708,65 +729,76 @@ async function processJob(params) {
     return;
   }
 
-  const existing = await getJob(jobId);
-  if (!existing) {
-    throw new Error(`Job not found while appending chunk: ${jobId}`);
-  }
-  const prevResults = Array.isArray(existing.results) ? existing.results : [];
-  const mergedResults = [...prevResults, ...results];
-  const newCompleted = Math.min(totalJobImages, Number(progressBase || 0) + completed);
-  const isLastChunk = newCompleted >= totalJobImages;
-
-  if (!isLastChunk) {
-    await updateJob(jobId, {
-      status: "running",
-      completed_images: newCompleted,
-      results: mergedResults,
-      error: null,
-    });
-
-    const queueUrl = process.env.BEAVER_JOB_QUEUE_URL;
-    if (!queueUrl) {
-      throw new Error("Missing BEAVER_JOB_QUEUE_URL for chunk continuation.");
-    }
-    const sqsClient = new SQSClient({ region });
-    await sqsClient.send(
-      new SendMessageCommand({
-        QueueUrl: queueUrl,
-        MessageBody: JSON.stringify({
-          jobId,
-          modelId,
-          bucket,
-          region,
-          s3Region,
-          manifest_key: manifestKey,
-          chunk_index: Number(chunkIndex || 0) + 1,
-          chunk_size: Number(chunkSize || 0),
-          total_images: totalJobImages,
-          progress_base: newCompleted,
-        }),
-      }),
-    );
-    return;
-  }
-
-  const csv = buildCsv(mergedResults);
-  const csvKey = `jobs/${jobId}/results/results.csv`;
+  const chunkId = String(Number(chunkIndex || 0)).padStart(6, "0");
+  const chunkKey = `jobs/${jobId}/results/chunks/${chunkId}.json`;
   await jobClient.send(
     new PutObjectCommand({
       Bucket: bucket,
-      Key: csvKey,
-      Body: csv,
-      ContentType: "text/csv",
+      Key: chunkKey,
+      Body: JSON.stringify(results),
+      ContentType: "application/json",
     }),
   );
+
+  const perChunk = Math.max(1, Number(chunkSize || 1));
+  const expectedChunks = Math.max(1, Math.ceil(totalJobImages / perChunk));
+  const chunkPrefix = `jobs/${jobId}/results/chunks/`;
+  const chunkKeys = await listS3KeysByPrefix(jobClient, bucket, chunkPrefix);
+  const completedChunks = chunkKeys.length;
+  const estimatedCompletedImages = Math.min(totalJobImages, completedChunks * perChunk);
   await updateJob(jobId, {
-    status: "complete",
-    completed_images: totalJobImages,
-    results: mergedResults,
-    csv_s3_key: csvKey,
+    status: "running",
+    completed_images: estimatedCompletedImages,
     error: null,
   });
+
+  if (completedChunks < expectedChunks) {
+    return;
+  }
+
+  const claimed = await claimJobFinalization(jobId);
+  if (!claimed) {
+    return;
+  }
+
+  try {
+    const orderedKeys = [...chunkKeys].sort((a, b) => a.localeCompare(b));
+    const mergedResults = [];
+    for (const key of orderedKeys) {
+      const response = await jobClient.send(
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        }),
+      );
+      if (!response.Body) continue;
+      const body = await streamToBuffer(response.Body);
+      const parsed = JSON.parse(body.toString("utf8"));
+      if (Array.isArray(parsed)) mergedResults.push(...parsed);
+    }
+
+    const csv = buildCsv(mergedResults);
+    const csvKey = `jobs/${jobId}/results/results.csv`;
+    await jobClient.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: csvKey,
+        Body: csv,
+        ContentType: "text/csv",
+      }),
+    );
+    await updateJob(jobId, {
+      status: "complete",
+      completed_images: totalJobImages,
+      results: mergedResults,
+      csv_s3_key: csvKey,
+      error: null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await updateJob(jobId, { status: "error", error: `Finalization failed: ${message}` });
+    throw error;
+  }
 }
 
 async function handleClassify(event) {
@@ -951,6 +983,7 @@ async function handleJobs(event) {
       50,
       Math.min(Number(process.env.BEAVER_JOB_CHUNK_SIZE || "250") || 250, 500),
     );
+    const totalChunks = Math.max(1, Math.ceil(allInputs.length / chunkSize));
     const manifestKey = `jobs/${jobId}/meta/inputs.json`;
     await jobClient.send(
       new PutObjectCommand({
@@ -961,28 +994,29 @@ async function handleJobs(event) {
       }),
     );
     const sqsClient = new SQSClient({ region });
-    await sqsClient.send(
-      new SendMessageCommand({
-        QueueUrl: queueUrl,
-        MessageBody: JSON.stringify({
-          jobId,
-          modelId,
-          bucket,
-          region,
-          s3Region,
-          manifest_key: manifestKey,
-          chunk_index: 0,
-          chunk_size: chunkSize,
-          total_images: allInputs.length,
-          progress_base: 0,
+    for (let i = 0; i < totalChunks; i += 1) {
+      await sqsClient.send(
+        new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify({
+            jobId,
+            modelId,
+            bucket,
+            region,
+            s3Region,
+            manifest_key: manifestKey,
+            chunk_index: i,
+            chunk_size: chunkSize,
+            total_images: allInputs.length,
+          }),
         }),
-      }),
-    );
+      );
+    }
     console.log("[jobs] enqueued", {
       jobId,
       total: allInputs.length,
       chunkSize,
-      chunks: Math.ceil(allInputs.length / chunkSize),
+      chunks: totalChunks,
     });
     return jsonResponse(202, {
       job_id: jobId,
@@ -1250,14 +1284,12 @@ exports.handler = async (event) => {
         const chunkIndex = Number(payload.chunk_index || 0) || 0;
         const chunkSize = Number(payload.chunk_size || 0) || 0;
         const totalImages = Number(payload.total_images || 0) || 0;
-        const progressBase = Number(payload.progress_base || 0) || 0;
         console.log("[jobs] dequeue", {
           jobId: payload.jobId,
           manifest: Boolean(manifestKey),
           chunkIndex,
           chunkSize,
           totalImages,
-          progressBase,
           total: Array.isArray(payload.s3Inputs) ? payload.s3Inputs.length : 0,
         });
         const s3Inputs = Array.isArray(payload.s3Inputs) ? payload.s3Inputs : [];
@@ -1273,10 +1305,10 @@ exports.handler = async (event) => {
           chunkIndex,
           chunkSize,
           totalImages,
-          progressBase,
         });
       } catch (error) {
         console.error("[jobs] queue processing error", error);
+        throw error;
       }
     }
     return { statusCode: 200, body: "" };
