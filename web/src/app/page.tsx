@@ -134,6 +134,7 @@ const REVIEW_LABELS = [
   { value: "other_animal", label: "Other animal" },
   { value: "no_animal", label: "No animal" },
 ];
+const ANIMAL_AGENT_OPTIONS = ["animal", "no_animal"];
 
 const ANIMAL_SPECIES_OPTIONS = [
   "Beaver",
@@ -325,6 +326,7 @@ export default function Home() {
   const [rowImageLoading, setRowImageLoading] = useState<Record<string, boolean>>({});
   const [rowImageErrors, setRowImageErrors] = useState<Record<string, string>>({});
   const [sequenceFilterId, setSequenceFilterId] = useState<string>("");
+  const [resultSort, setResultSort] = useState<string>("default");
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; role: "user" | "assistant"; text: string }>
   >([]);
@@ -626,6 +628,36 @@ export default function Home() {
     );
   }, [results, sequenceData.rowIdToSequenceId, sequenceFilterId]);
 
+  const sortedVisibleResults = useMemo(() => {
+    const list = [...visibleResults];
+    switch (resultSort) {
+      case "beaver_desc":
+        return list.sort((a, b) => Number(b.has_beaver) - Number(a.has_beaver));
+      case "beaver_asc":
+        return list.sort((a, b) => Number(a.has_beaver) - Number(b.has_beaver));
+      case "animal_desc":
+        return list.sort((a, b) => Number(b.has_animal) - Number(a.has_animal));
+      case "animal_asc":
+        return list.sort((a, b) => Number(a.has_animal) - Number(b.has_animal));
+      case "flagged_desc":
+        return list.sort(
+          (a, b) =>
+            Number(Boolean(b.manual_review || b.agent_conflict || b.error)) -
+            Number(Boolean(a.manual_review || a.agent_conflict || a.error)),
+        );
+      case "confidence_desc":
+        return list.sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+      case "confidence_asc":
+        return list.sort((a, b) => Number(a.confidence || 0) - Number(b.confidence || 0));
+      case "file_asc":
+        return list.sort((a, b) =>
+          String(a.filename || a.image_path).localeCompare(String(b.filename || b.image_path)),
+        );
+      default:
+        return list;
+    }
+  }, [visibleResults, resultSort]);
+
   const mapClassifyResults = (items: Array<{
     filename: string;
     is_beaver: boolean;
@@ -917,6 +949,36 @@ export default function Home() {
           animal_type: normalized,
           has_animal: hasAnimal,
           animal_agent_label: animalAgentLabel,
+          review_label: nextReviewLabel,
+          was_corrected,
+        };
+      }),
+    );
+  };
+
+  const handleUpdateAnimalAgent = (id: string, nextValue: string) => {
+    setResults((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        const isNoAnimal = nextValue === "no_animal";
+        const nextSpecies = isNoAnimal
+          ? "No animal"
+          : row.animal_type === "No animal"
+            ? "unknown"
+            : row.animal_type || "unknown";
+        const nextCommonName = isNoAnimal ? "NA" : nextSpecies;
+        const nextReviewLabel = isNoAnimal
+          ? "no_animal"
+          : nextSpecies === "Beaver"
+            ? "beaver"
+            : "other_animal";
+        const was_corrected = row.predicted_label !== nextReviewLabel;
+        return {
+          ...row,
+          animal_agent_label: isNoAnimal ? "no_animal" : "animal",
+          has_animal: !isNoAnimal,
+          animal_type: nextSpecies,
+          Common_Name: nextCommonName,
           review_label: nextReviewLabel,
           was_corrected,
         };
@@ -1864,6 +1926,30 @@ export default function Home() {
                       </button>
                     </div>
                   )}
+                  <div className="mb-3 flex items-center justify-end gap-2 text-xs">
+                    <label
+                      htmlFor="result-sort"
+                      className="font-semibold text-[hsl(var(--muted-foreground))]"
+                    >
+                      Sort
+                    </label>
+                    <select
+                      id="result-sort"
+                      value={resultSort}
+                      onChange={(event) => setResultSort(event.target.value)}
+                      className="rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
+                    >
+                      <option value="default">Default</option>
+                      <option value="beaver_desc">Beaver first</option>
+                      <option value="beaver_asc">No beaver first</option>
+                      <option value="animal_desc">Animal first</option>
+                      <option value="animal_asc">No animal first</option>
+                      <option value="flagged_desc">Flagged first</option>
+                      <option value="confidence_desc">Confidence high to low</option>
+                      <option value="confidence_asc">Confidence low to high</option>
+                      <option value="file_asc">File A-Z</option>
+                    </select>
+                  </div>
                   <table className="w-full table-fixed text-left text-xs">
                     <thead className="sticky top-0 bg-white">
                       <tr className="border-b border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
@@ -1878,7 +1964,7 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleResults.map((row) => {
+                      {sortedVisibleResults.map((row) => {
                         const isExpanded = expandedRows.includes(row.id);
                         const seqId = sequenceData.rowIdToSequenceId.get(row.id) || "";
                         const seq = seqId ? sequenceData.sequencesById.get(seqId) : undefined;
@@ -1938,9 +2024,19 @@ export default function Home() {
                                 </span>
                               </td>
                               <td className="px-2 py-2">
-                                <span className="rounded-full border border-[hsl(var(--border))] bg-white px-2 py-1 text-[10px]">
-                                  {row.animal_agent_label}
-                                </span>
+                                <select
+                                  value={row.animal_agent_label}
+                                  onChange={(event) =>
+                                    handleUpdateAnimalAgent(row.id, event.target.value)
+                                  }
+                                  className="w-full min-w-[96px] rounded-xl border border-[hsl(var(--border))] bg-white px-2 py-1 text-xs"
+                                >
+                                  {ANIMAL_AGENT_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
                               </td>
                               <td className="px-2 py-2">
                                 <select
