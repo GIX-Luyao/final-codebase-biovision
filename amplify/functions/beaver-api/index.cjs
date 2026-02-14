@@ -26,6 +26,7 @@ const {
   createJob,
   updateJob,
   getJob,
+  listJobs,
 } = require("./lib/jobsDb");
 
 const bedrock = createAmazonBedrock({
@@ -1137,6 +1138,28 @@ async function handleJobStatus(jobId) {
   });
 }
 
+async function handleJobsList(event) {
+  const query = event?.queryStringParameters || {};
+  const jobs = await listJobs({
+    limit: query.limit,
+    status: query.status,
+    source: query.source,
+  });
+  return jsonResponse(200, {
+    jobs: jobs.map((job) => ({
+      job_id: job.id,
+      status: job.status,
+      source: job.source,
+      total_images: job.total_images,
+      completed_images: job.completed_images,
+      error: job.error,
+      csv_s3_key: job.csv_s3_key,
+      created_at: job.created_at,
+      updated_at: job.updated_at,
+    })),
+  });
+}
+
 async function handleJobCsv(jobId) {
   const job = await getJob(jobId);
   if (!job || !job.csv_s3_key) {
@@ -1372,6 +1395,9 @@ exports.handler = async (event) => {
     }
     if (method === "POST" && normalizedPath === "/api/jobs") {
       return await handleJobs(event);
+    }
+    if (method === "GET" && normalizedPath === "/api/jobs") {
+      return await handleJobsList(event);
     }
     if (method === "POST" && normalizedPath === "/api/upload-url") {
       return await handleUploadUrl(event);

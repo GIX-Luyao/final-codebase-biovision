@@ -39,3 +39,27 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: message }), { status: 500 });
   }
 }
+
+export async function GET(req: Request) {
+  try {
+    const base = resolveBeaverApiBase().value;
+    const incoming = new URL(req.url);
+    const url = new URL("/api/jobs", base);
+    incoming.searchParams.forEach((value, key) => {
+      url.searchParams.set(key, value);
+    });
+
+    const response = await fetch(url, {
+      method: "GET",
+    });
+    const text = await response.text();
+    return new Response(text, {
+      status: response.status,
+      headers: pickForwardHeaders(response),
+    });
+  } catch (error) {
+    console.error("Jobs list API error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return new Response(JSON.stringify({ error: message }), { status: 500 });
+  }
+}

@@ -129,6 +129,18 @@ type SequenceSummary = {
   reason: string;
 };
 
+type JobHistoryItem = {
+  job_id: string;
+  status: string;
+  source: string;
+  total_images: number;
+  completed_images: number;
+  error: string;
+  csv_s3_key: string;
+  created_at: string;
+  updated_at: string;
+};
+
 const REVIEW_LABELS = [
   { value: "beaver", label: "Beaver" },
   { value: "other_animal", label: "Other animal" },
@@ -300,7 +312,7 @@ async function readErrorFromResponse(response: Response) {
 
 export default function Home() {
   const auth = useAuth();
-  const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "chat">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "history" | "chat">("home");
   const [showAuth, setShowAuth] = useState(false);
   const [s3Path, setS3Path] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -332,6 +344,12 @@ export default function Home() {
   >([]);
   const [chatStatus, setChatStatus] = useState<"idle" | "loading">("idle");
   const [chatError, setChatError] = useState("");
+  const [historyJobs, setHistoryJobs] = useState<JobHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySort, setHistorySort] = useState<"newest" | "oldest">("newest");
+  const [historyStatus, setHistoryStatus] = useState<string>("all");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -1056,6 +1074,69 @@ export default function Home() {
 
   const isTyping = chatStatus === "loading";
 
+  const loadHistoryJobs = async () => {
+    setHistoryError("");
+    setHistoryLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set("limit", "100");
+      if (historyStatus !== "all") query.set("status", historyStatus);
+      const response = await fetch(`/api/jobs?${query.toString()}`);
+      if (!response.ok) {
+        throw new Error(await readErrorFromResponse(response));
+      }
+      const payload = await response.json().catch(() => ({}));
+      const items = Array.isArray(payload.jobs) ? payload.jobs : [];
+      setHistoryJobs(
+        items.map((item: Record<string, unknown>) => ({
+          job_id: String(item.job_id || ""),
+          status: String(item.status || ""),
+          source: String(item.source || ""),
+          total_images: Number(item.total_images || 0) || 0,
+          completed_images: Number(item.completed_images || 0) || 0,
+          error: String(item.error || ""),
+          csv_s3_key: String(item.csv_s3_key || ""),
+          created_at: String(item.created_at || ""),
+          updated_at: String(item.updated_at || ""),
+        })),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load history.";
+      setHistoryError(message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== "history") return;
+    if (!auth.user) return;
+    void loadHistoryJobs();
+  }, [activeTab, auth.user, historyStatus]);
+
+  const filteredHistoryJobs = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    const filtered = historyJobs.filter((job) => {
+      if (!q) return true;
+      return (
+        job.job_id.toLowerCase().includes(q) ||
+        job.status.toLowerCase().includes(q) ||
+        job.source.toLowerCase().includes(q)
+      );
+    });
+    return filtered.sort((a, b) => {
+      const ta = Date.parse(a.created_at || "") || 0;
+      const tb = Date.parse(b.created_at || "") || 0;
+      return historySort === "newest" ? tb - ta : ta - tb;
+    });
+  }, [historyJobs, historySearch, historySort]);
+
+  const formatHistoryDate = (value: string) => {
+    const ts = Date.parse(value || "");
+    if (!Number.isFinite(ts)) return "—";
+    return new Date(ts).toLocaleString();
+  };
+
   const loadRowImage = async (row: DetectionResult) => {
     if (rowImageUrls[row.id] || rowImageLoading[row.id]) return;
     if (!row.s3_key) {
@@ -1101,7 +1182,33 @@ export default function Home() {
     }
   };
 
-  const goToTab = (tab: "home" | "dashboard" | "chat") => {
+  const handleOpenHistoryJob = async (historyJobId: string) => {
+    setRunError("");
+    try {
+      const response = await fetch(`/api/jobs/${historyJobId}`);
+      if (!response.ok) {
+        throw new Error(await readErrorFromResponse(response));
+      }
+      const payload = await response.json().catch(() => ({}));
+      const mapped = mapClassifyResults(
+        Array.isArray(payload.results) ? payload.results : [],
+      );
+      setResults(mapped);
+      setJobId(historyJobId);
+      setJobStatus(String(payload.status || ""));
+      setJobCsvKey(String(payload.csv_s3_key || ""));
+      setJobProgress({
+        completed: Number(payload.completed_images || 0) || 0,
+        total: Number(payload.total_images || 0) || 0,
+      });
+      setActiveTab("dashboard");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to open job.";
+      setRunError(message);
+    }
+  };
+
+  const goToTab = (tab: "home" | "dashboard" | "history" | "chat") => {
     if (tab !== "home" && auth.ready && !auth.user) {
       setShowAuth(true);
       return;
@@ -1164,6 +1271,17 @@ export default function Home() {
             >
               Chat
             </button>
+            <button
+              type="button"
+              onClick={() => goToTab("history")}
+              className={`rounded px-2 py-1 text-sm font-medium transition ${
+                activeTab === "history"
+                  ? "border-b-2 border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
+                  : "border-b-2 border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+              }`}
+            >
+              History
+            </button>
             <div className="mx-2 h-4 w-px bg-[hsl(var(--border))]" />
             {auth.user ? (
               <button
@@ -1197,7 +1315,11 @@ export default function Home() {
               <header className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">
-                    {activeTab === "dashboard" ? "Detection Workflow" : "Chat"}
+                    {activeTab === "dashboard"
+                      ? "Detection Workflow"
+                      : activeTab === "history"
+                        ? "Job History"
+                        : "Chat"}
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm text-[hsl(var(--muted-foreground))]">
                     Upload trail-cam batches, run Beaver + Animal ID, review labels, export CSVs,
@@ -1754,6 +1876,109 @@ export default function Home() {
                 </div>
               </div>
             </section>
+            ) : activeTab === "history" ? (
+              <section className="mt-8">
+                <div className="rounded-3xl border border-[hsl(var(--border))] bg-white/90 p-6 shadow-lg shadow-black/5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+                      Jobs
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => void loadHistoryJobs()}
+                      className="rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-1.5 text-xs font-semibold"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                    <input
+                      value={historySearch}
+                      onChange={(event) => setHistorySearch(event.target.value)}
+                      placeholder="Search by job id/status/source"
+                      className="rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-2 text-sm"
+                    />
+                    <select
+                      value={historyStatus}
+                      onChange={(event) => setHistoryStatus(event.target.value)}
+                      className="rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="all">All status</option>
+                      <option value="queued">Queued</option>
+                      <option value="running">Running</option>
+                      <option value="finalizing">Finalizing</option>
+                      <option value="complete">Complete</option>
+                      <option value="error">Error</option>
+                    </select>
+                    <select
+                      value={historySort}
+                      onChange={(event) =>
+                        setHistorySort(event.target.value === "oldest" ? "oldest" : "newest")
+                      }
+                      className="rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                    </select>
+                  </div>
+
+                  {historyError && (
+                    <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {historyError}
+                    </p>
+                  )}
+
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full min-w-[860px] table-fixed text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
+                          <th className="w-[28%] px-2 py-2 font-semibold">Job ID</th>
+                          <th className="w-[10%] px-2 py-2 font-semibold">Status</th>
+                          <th className="w-[10%] px-2 py-2 font-semibold">Source</th>
+                          <th className="w-[10%] px-2 py-2 font-semibold">Images</th>
+                          <th className="w-[18%] px-2 py-2 font-semibold">Created</th>
+                          <th className="w-[18%] px-2 py-2 font-semibold">Updated</th>
+                          <th className="w-[6%] px-2 py-2 font-semibold">Open</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredHistoryJobs.map((job) => (
+                          <tr key={job.job_id} className="border-b border-[hsl(var(--border))]">
+                            <td className="truncate px-2 py-2 font-mono">{job.job_id}</td>
+                            <td className="px-2 py-2">{job.status}</td>
+                            <td className="px-2 py-2">{job.source}</td>
+                            <td className="px-2 py-2">
+                              {job.completed_images}/{job.total_images}
+                            </td>
+                            <td className="px-2 py-2">{formatHistoryDate(job.created_at)}</td>
+                            <td className="px-2 py-2">{formatHistoryDate(job.updated_at)}</td>
+                            <td className="px-2 py-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleOpenHistoryJob(job.job_id)}
+                                className="font-semibold text-[hsl(var(--accent))]"
+                              >
+                                Open
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!historyLoading && filteredHistoryJobs.length === 0 && (
+                      <p className="py-4 text-sm text-[hsl(var(--muted-foreground))]">
+                        No jobs found.
+                      </p>
+                    )}
+                    {historyLoading && (
+                      <p className="py-4 text-sm text-[hsl(var(--muted-foreground))]">
+                        Loading jobs...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </section>
             ) : (
               <section className="mt-8">
                 <div className="flex min-h-[72vh] flex-col rounded-3xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-sm">

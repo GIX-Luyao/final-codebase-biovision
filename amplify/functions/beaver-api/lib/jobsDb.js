@@ -141,6 +141,43 @@ async function getJob(id) {
   return result.rows[0] || null;
 }
 
+async function listJobs(params = {}) {
+  const db = await requireDb();
+  const limitRaw = Number(params.limit || 50);
+  const limit = Math.max(1, Math.min(limitRaw, 200));
+  const status = String(params.status || "").trim();
+  const source = String(params.source || "").trim();
+
+  const where = [];
+  const values = [];
+  let idx = 1;
+
+  if (status) {
+    where.push(`status = $${idx}`);
+    values.push(status);
+    idx += 1;
+  }
+  if (source) {
+    where.push(`source = $${idx}`);
+    values.push(source);
+    idx += 1;
+  }
+
+  values.push(limit);
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const result = await db.query(
+    `
+    SELECT id, status, source, total_images, completed_images, error, csv_s3_key, created_at, updated_at
+    FROM beaver_jobs
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT $${idx};
+  `,
+    values,
+  );
+  return result.rows;
+}
+
 async function claimJobFinalization(id) {
   const db = await requireDb();
   const result = await db.query(
@@ -159,5 +196,6 @@ module.exports = {
   claimJobFinalization,
   createJob,
   getJob,
+  listJobs,
   updateJob,
 };
