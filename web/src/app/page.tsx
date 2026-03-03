@@ -2318,7 +2318,7 @@ export default function Home() {
                                         <img
                                           src={rowImageUrls[row.id]}
                                           alt={row.filename || "preview"}
-                                          className="mt-1 max-h-72 rounded-xl border border-[hsl(var(--border))] bg-white object-contain"
+                                          className="mt-2 w-full max-w-4xl max-h-[32rem] rounded-xl border border-[hsl(var(--border))] bg-white object-contain"
                                         />
                                       ) : rowImageLoading[row.id] ? (
                                         <p className="mt-1 text-[hsl(var(--muted-foreground))]">
